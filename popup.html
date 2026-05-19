@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>GUC GPA Calculator</title>
+    <title>GUC Student Hub</title>
     <style>
     * {
       margin: 0;
@@ -259,12 +259,113 @@
       color: #666;
       line-height: 1.5;
     }
+
+    /* Custom Grade Dropdown */
+    .guc-dropdown-container {
+      position: relative;
+      width: 100px;
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      user-select: none;
+    }
+
+    .guc-dropdown-selected {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 4px 8px;
+      background: white;
+      border: 1px solid #ccc;
+      border-radius: 6px;
+      font-size: 13px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      color: #333;
+    }
+
+    .guc-dropdown-selected:hover {
+      border-color: #004a99;
+    }
+
+    .guc-dropdown-selected::after {
+      content: '▼';
+      font-size: 10px;
+      color: #888;
+      margin-left: 6px;
+    }
+
+    .guc-dropdown-menu {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: 130px;
+      margin-top: 4px;
+      background: white;
+      border: 1px solid #e0e0e0;
+      border-radius: 8px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      z-index: 1000;
+      display: none;
+      max-height: 200px;
+      overflow-y: auto;
+    }
+
+    .guc-dropdown-menu.guc-show {
+      display: block;
+      animation: gucFadeIn 0.2s ease-out;
+    }
+
+    @keyframes gucFadeIn {
+      from { opacity: 0; transform: translateY(-5px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    .guc-dropdown-divider {
+      padding: 4px 8px;
+      font-size: 11px;
+      font-weight: 600;
+      color: #999;
+      background: #f8f9fa;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      border-top: 1px solid #eee;
+      border-bottom: 1px solid #eee;
+    }
+
+    .guc-dropdown-divider:first-child {
+      border-top: none;
+    }
+
+    .guc-dropdown-item {
+      padding: 6px 8px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-size: 13px;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+
+    .guc-dropdown-item:hover {
+      background: #f0f4f8;
+    }
+
+    .guc-grade-points {
+      font-size: 11px;
+      opacity: 0.7;
+      font-weight: 500;
+    }
+
+    .guc-grade-tier-neutral { color: #888; font-style: italic; }
+    .guc-grade-tier-a { color: #28a745; font-weight: 600; }
+    .guc-grade-tier-b { color: #d4a843; font-weight: 600; }
+    .guc-grade-tier-c { color: #fd7e14; font-weight: 600; }
+    .guc-grade-tier-df { color: #dc3545; font-weight: 600; }
   </style>
   </head>
   <body>
     <div class="popup-container">
       <div class="popup-header">
-        <h1>📊 GUC GPA Calculator</h1>
+        <h1>📊 GUC Student Hub</h1>
         <p>Transcript Grade Predictor & Analyzer</p>
       </div>
 
@@ -298,14 +399,10 @@
               grade:</b><br>
             <table
               style="margin:8px 0 0 0;font-size:13px;width:100%;border-collapse:collapse;">
-              <tr><td>A+</td><td>= 0.7</td><td>A</td><td>=
-                  1.0</td><td>A-</td><td>= 1.3</td></tr>
-              <tr><td>B+</td><td>= 1.7</td><td>B</td><td>=
-                  2.0</td><td>B-</td><td>= 2.3</td></tr>
-              <tr><td>C+</td><td>= 2.7</td><td>C</td><td>=
-                  3.0</td><td>C-</td><td>= 3.3</td></tr>
-              <tr><td>D</td><td>= 3.7</td><td>F</td><td>=
-                  5.0</td><td></td><td></td></tr>
+              <tr><td>A+</td><td>= 0.7</td><td>A</td><td>= 1.0</td><td>A-</td><td>= 1.3</td></tr>
+              <tr><td>B+</td><td>= 1.7</td><td>B</td><td>= 2.0</td><td>B-</td><td>= 2.3</td></tr>
+              <tr><td>C+</td><td>= 2.7</td><td>C</td><td>= 3.0</td><td>C-</td><td>= 3.3</td></tr>
+              <tr><td>D+</td><td>= 3.7</td><td>D</td><td>= 4.0</td><td>F</td><td>= 5.0</td></tr>
             </table>
             <div style="margin-top:6px;color:#666;">For example, if you get an
               A+ (0.7–1.0), your GPA is calculated using <b>0.7</b>.</div>
@@ -359,7 +456,7 @@
       <div class="popup-footer">
         <a href="https://apps.guc.edu.eg" target="_blank">GUC Student
           Portal</a>
-        <div class="version">Version 1.0.0</div>
+        <div class="version">Version 2.1.0</div>
       </div>
     </div>
 

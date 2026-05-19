@@ -19,7 +19,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   const targetResult = document.getElementById('target-result');
 
   // Storage keys
-  const USER_COURSES_KEY = 'userCourses';
+  const USER_COURSES_KEY = 'userPendingCourses';
   const USER_TARGET_GPA_KEY = 'userTargetGpa';
 
   // Load user courses and target GPA
@@ -36,22 +36,120 @@ document.addEventListener('DOMContentLoaded', async () => {
       showStatus('Enter valid course name and credits.', 'error');
       return;
     }
-    userCourses.push({ name, credits });
+    userCourses.push({
+      id: Date.now() + Math.random(),
+      courseName: name,
+      creditHours: credits
+    });
     await chrome.storage.local.set({ [USER_COURSES_KEY]: userCourses });
     courseNameInput.value = '';
     courseCreditsInput.value = '';
     renderCoursesList();
   });
 
+  // Helper to generate the custom dropdown HTML
+  function getDropdownHTML(courseId, selectedGrade) {
+    const grades = [
+      { val: '', text: 'Pending', tier: 'guc-grade-tier-neutral', points: '' },
+      { divider: 'A Range' },
+      { val: '0.7', text: 'A+', tier: 'guc-grade-tier-a', points: '0.7' },
+      { val: '1.0', text: 'A', tier: 'guc-grade-tier-a', points: '1.0' },
+      { val: '1.3', text: 'A-', tier: 'guc-grade-tier-a', points: '1.3' },
+      { divider: 'B Range' },
+      { val: '1.7', text: 'B+', tier: 'guc-grade-tier-b', points: '1.7' },
+      { val: '2.0', text: 'B', tier: 'guc-grade-tier-b', points: '2.0' },
+      { val: '2.3', text: 'B-', tier: 'guc-grade-tier-b', points: '2.3' },
+      { divider: 'C Range' },
+      { val: '2.7', text: 'C+', tier: 'guc-grade-tier-c', points: '2.7' },
+      { val: '3.0', text: 'C', tier: 'guc-grade-tier-c', points: '3.0' },
+      { val: '3.3', text: 'C-', tier: 'guc-grade-tier-c', points: '3.3' },
+      { divider: 'D/F Range' },
+      { val: '3.7', text: 'D+', tier: 'guc-grade-tier-df', points: '3.7' },
+      { val: '4.0', text: 'D', tier: 'guc-grade-tier-df', points: '4.0' },
+      { val: '5.0', text: 'F', tier: 'guc-grade-tier-df', points: '5.0' }
+    ];
+
+    let selectedText = 'Pending';
+    let selectedTier = 'guc-grade-tier-neutral';
+    
+    if (selectedGrade) {
+      const found = grades.find(g => g.val === selectedGrade);
+      if (found) {
+        selectedText = found.text;
+        selectedTier = found.tier;
+      }
+    }
+
+    let menuHTML = '';
+    grades.forEach(g => {
+      if (g.divider) {
+        menuHTML += `<div class="guc-dropdown-divider">${g.divider}</div>`;
+      } else {
+        menuHTML += `
+          <div class="guc-dropdown-item ${g.tier}" data-value="${g.val}">
+            <span>${g.text}</span>
+            ${g.points ? `<span class="guc-grade-points">${g.points}</span>` : ''}
+          </div>
+        `;
+      }
+    });
+
+    return `
+      <div class="guc-dropdown-container" data-id="${courseId}">
+        <div class="guc-dropdown-selected ${selectedTier}">
+          <span class="guc-selected-text">${selectedText}</span>
+        </div>
+        <div class="guc-dropdown-menu">
+          ${menuHTML}
+        </div>
+      </div>
+    `;
+  }
+
   function renderCoursesList() {
     coursesList.innerHTML = '';
     userCourses.forEach((course, idx) => {
       const li = document.createElement('li');
-      li.textContent = `${course.name} (${course.credits} credits)`;
       li.style.display = 'flex';
       li.style.justifyContent = 'space-between';
       li.style.alignItems = 'center';
       li.style.gap = '8px';
+      li.style.marginBottom = '6px';
+
+      const nameSpan = document.createElement('span');
+      nameSpan.textContent = `${course.courseName} (${course.creditHours} cr)`;
+      nameSpan.style.flex = '1';
+      nameSpan.style.overflow = 'hidden';
+      nameSpan.style.textOverflow = 'ellipsis';
+      nameSpan.style.whiteSpace = 'nowrap';
+
+      const dropdownWrapper = document.createElement('div');
+      dropdownWrapper.innerHTML = getDropdownHTML(idx, course.predictedGrade);
+      const container = dropdownWrapper.firstElementChild;
+      
+      const selectedEl = container.querySelector('.guc-dropdown-selected');
+      const menuEl = container.querySelector('.guc-dropdown-menu');
+
+      selectedEl.addEventListener('click', (e) => {
+        e.stopPropagation();
+        document.querySelectorAll('.guc-dropdown-menu.guc-show').forEach(m => {
+          if (m !== menuEl) m.classList.remove('guc-show');
+        });
+        menuEl.classList.toggle('guc-show');
+      });
+
+      container.querySelectorAll('.guc-dropdown-item').forEach(item => {
+        item.addEventListener('click', async (e) => {
+          e.stopPropagation();
+          const value = item.getAttribute('data-value');
+          // BUG-4 FIX: store null (not "") when Pending is selected so falsy checks work cleanly
+          userCourses[idx].predictedGrade = value || null;
+          await chrome.storage.local.set({ [USER_COURSES_KEY]: userCourses });
+          renderCoursesList();
+          calculateRequiredAverageWithTranscript();
+        });
+      });
+
       // Remove button
       const btnRemove = document.createElement('button');
       btnRemove.textContent = '✖';
@@ -65,11 +163,20 @@ document.addEventListener('DOMContentLoaded', async () => {
         userCourses.splice(idx, 1);
         await chrome.storage.local.set({ [USER_COURSES_KEY]: userCourses });
         renderCoursesList();
+        calculateRequiredAverageWithTranscript();
       };
+      
+      li.appendChild(nameSpan);
+      li.appendChild(container);
       li.appendChild(btnRemove);
       coursesList.appendChild(li);
     });
   }
+
+  // Close dropdowns on outside click
+  document.addEventListener('click', () => {
+    document.querySelectorAll('.guc-dropdown-menu.guc-show').forEach(m => m.classList.remove('guc-show'));
+  });
 
   async function loadUserCourses() {
     const storage = await chrome.storage.local.get([USER_COURSES_KEY]);
@@ -100,6 +207,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   // --- Grade Combination Suggestion Logic ---
   let gradeCombinations = [];
   let currentCombinationIndex = 0;
+  // BUG-2 FIX: store the full pending list at outer scope so showCurrentCombination always has it
+  let lastTrulyPendingCourses = [];
 
   async function calculateRequiredAverageWithTranscript() {
     if (!userTargetGpa) {
@@ -108,23 +217,59 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
     // Get completed courses from the transcript (content script)
     let completedCourses = [];
+    let transcriptPendingCourses = [];
+    let predictedGrades = {};
     try {
       const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
       if (tab && tab.url && tab.url.includes('apps.guc.edu.eg')) {
         const response = await chrome.tabs.sendMessage(tab.id, { action: 'getCompletedCourses' });
-        completedCourses = response && response.completedCourses ? response.completedCourses : [];
+        if (response) {
+          completedCourses = response.completedCourses || [];
+          transcriptPendingCourses = response.transcriptPendingCourses || [];
+          predictedGrades = response.predictedGrades || {};
+        }
       }
     } catch (e) {
       completedCourses = [];
+      transcriptPendingCourses = [];
+      predictedGrades = {};
     }
 
-    const pendingCourses = userCourses;
-    const completedCredits = completedCourses.reduce((sum, c) => sum + Number(c.creditHours), 0);
-    const completedWeightedSum = completedCourses.reduce((sum, c) => sum + (Number(c.grade) * Number(c.creditHours)), 0);
-    const pendingCredits = pendingCourses.reduce((sum, c) => sum + Number(c.credits), 0);
+    const trulyPendingCourses = userCourses.filter(c => !c.predictedGrade);
+    const predictedPendingCourses = userCourses.filter(c => c.predictedGrade);
+
+    let completedCredits = completedCourses.reduce((sum, c) => sum + Number(c.creditHours), 0);
+    let completedWeightedSum = completedCourses.reduce((sum, c) => sum + (Number(c.grade) * Number(c.creditHours)), 0);
+
+    transcriptPendingCourses.forEach(c => {
+      // BUG-3 FIX: use parseFloat and guard against empty string / zero
+      const savedGrade = parseFloat(predictedGrades[c.courseName]);
+      if (!isNaN(savedGrade) && savedGrade > 0) {
+        completedCredits += Number(c.creditHours);
+        completedWeightedSum += savedGrade * Number(c.creditHours);
+      } else {
+        // BUG-2 FIX: push into the same trulyPendingCourses array that is saved to outer scope
+        trulyPendingCourses.push({
+          courseName: c.courseName,
+          creditHours: Number(c.creditHours)
+        });
+      }
+    });
+
+    // Add predicted pending courses to the "completed" totals
+    predictedPendingCourses.forEach(c => {
+      completedCredits += Number(c.creditHours);
+      completedWeightedSum += Number(c.predictedGrade) * Number(c.creditHours);
+    });
+
+    const pendingCredits = trulyPendingCourses.reduce((sum, c) => sum + Number(c.creditHours), 0);
 
     if (pendingCredits === 0) {
-      targetResult.innerHTML = '<span style="color:#d48806">No pending courses entered.</span>';
+      const resultingGPA = completedCredits > 0 ? (completedWeightedSum / completedCredits).toFixed(2) : 'N/A';
+      targetResult.innerHTML = `<span style="color:#28a745">All pending courses have predicted grades. Projected GPA: <b>${resultingGPA}</b></span>`;
+      const btn = document.getElementById('show-other-suggestions');
+      if (btn) btn.remove();
+      lastTrulyPendingCourses = [];
       return;
     }
 
@@ -133,7 +278,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     const requiredPendingWeightedSum = targetWeightedSum - completedWeightedSum;
     const requiredAvgGrade = requiredPendingWeightedSum / pendingCredits;
 
-    // If required average is less than 0.7, not possible
     if (requiredAvgGrade < 0.7) {
       targetResult.innerHTML = `❌ Not possible: The best achievable grade is 0.7, but you would need an average of <b>${requiredAvgGrade.toFixed(2)}</b>.<br>`;
       return;
@@ -143,8 +287,11 @@ document.addEventListener('DOMContentLoaded', async () => {
       return;
     }
 
-    // Generate all possible grade combinations for pending courses
-    gradeCombinations = generateGradeCombinations(pendingCourses, requiredPendingWeightedSum);
+    // BUG-2 FIX: save the full list before generating combos so showCurrentCombination can use it
+    lastTrulyPendingCourses = trulyPendingCourses.slice();
+
+    // BUG-1 FIX: pass completedCourses into generateGradeCombinations so GPA is calculated correctly
+    gradeCombinations = generateGradeCombinations(trulyPendingCourses, completedCourses, completedCredits, completedWeightedSum);
     currentCombinationIndex = 0;
 
     if (gradeCombinations.length === 0) {
@@ -153,7 +300,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
 
     showCurrentCombination();
-    // Add button for more suggestions if more than one
     if (gradeCombinations.length > 1) {
       if (!document.getElementById('show-other-suggestions')) {
         const btn = document.createElement('button');
@@ -173,72 +319,53 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Helper: Generate all possible grade combinations (brute force, GUC steps),
-  // and return those that meet or exceed the target GPA (as close as possible, minimum sum of grades)
-  function generateGradeCombinations(pendingCourses, requiredSum) {
-    const gradeSteps = [0.7, 1.0, 1.3, 1.7, 2.0, 2.3, 2.7, 3.0, 3.3, 3.7, 5.0];
+  // BUG-1 FIX: completedCourses, completedCredits, completedWeightedSum passed as explicit params
+  function generateGradeCombinations(pendingCourses, completedCourses, completedCredits, completedWeightedSum) {
+    const gradeSteps = [0.7, 1.0, 1.3, 1.7, 2.0, 2.3, 2.7, 3.0, 3.3, 3.7, 4.0, 5.0];
     const n = pendingCourses.length;
-    const credits = pendingCourses.map(c => Number(c.credits));
+    const credits = pendingCourses.map(c => Number(c.creditHours));
     const combinations = [];
-    const completedCourses = [];
-    // Try all combinations for up to 4 courses
+
     function tryCombinations(idx, current) {
       if (idx === n) {
-        // Calculate GPA for this combination
-        let weightedSum = 0, totalCredits = 0;
+        // BUG-1 FIX: include real completed courses in GPA check
+        let pendingWeightedSum = 0, pendingTotalCredits = 0;
         for (let i = 0; i < n; ++i) {
-          weightedSum += current[i] * credits[i];
-          totalCredits += credits[i];
+          pendingWeightedSum += current[i] * credits[i];
+          pendingTotalCredits += credits[i];
         }
-        // Add completed courses if available (from closure)
-        if (window.completedCoursesForCombo) {
-          for (const c of window.completedCoursesForCombo) {
-            weightedSum += c.grade * c.creditHours;
-            totalCredits += c.creditHours;
-          }
-        }
-        const gpa = weightedSum / totalCredits;
+        const totalW = completedWeightedSum + pendingWeightedSum;
+        const totalC = completedCredits + pendingTotalCredits;
+        const gpa = totalC > 0 ? totalW / totalC : 0;
         if (gpa >= userTargetGpa - 0.0001) {
-          combinations.push({ grades: [...current], gpa: gpa, sum: current.reduce((a, b) => a + b, 0) });
+          combinations.push({ grades: [...current], gpa, sum: current.reduce((a, b) => a + b, 0) });
         }
         return;
       }
-      for (let g of gradeSteps) {
+      for (const g of gradeSteps) {
         current.push(g);
         tryCombinations(idx + 1, current);
         current.pop();
       }
     }
+
     if (n >= 1 && n <= 4) {
-      // Pass completed courses for GPA calculation
-      window.completedCoursesForCombo = (typeof completedCoursesForCombo !== 'undefined') ? completedCoursesForCombo : [];
       tryCombinations(0, []);
-      delete window.completedCoursesForCombo;
-      // Sort by GPA (closest to target) then by sum of grades (easiest)
       combinations.sort((a, b) => (a.gpa - b.gpa) || (a.sum - b.sum));
-      // Only keep those with the minimum GPA >= target
       if (combinations.length > 0) {
         const minGPA = combinations[0].gpa;
         return combinations.filter(c => Math.abs(c.gpa - minGPA) < 0.01).map(c => c.grades);
       }
       return [];
     } else {
-      // For more than 4 courses, just suggest equal grades (minimum that meets/exceeds target)
-      let totalCredits = credits.reduce((a, b) => a + b, 0);
-      let completedWeightedSum = 0, completedCredits = 0;
-      if (window.completedCoursesForCombo) {
-        for (const c of window.completedCoursesForCombo) {
-          completedWeightedSum += c.grade * c.creditHours;
-          completedCredits += c.creditHours;
-        }
-      }
-      let needed = (userTargetGpa * (totalCredits + completedCredits) - completedWeightedSum) / totalCredits;
-      // Snap to nearest valid grade step >= needed
-      let valid = gradeSteps.filter(g => g >= needed);
+      // For more than 4 courses suggest the equal grade that just meets the target
+      const pendingTotalCredits = credits.reduce((a, b) => a + b, 0);
+      const totalCredits = completedCredits + pendingTotalCredits;
+      const needed = (userTargetGpa * totalCredits - completedWeightedSum) / pendingTotalCredits;
+      const valid = gradeSteps.filter(g => g >= needed);
       if (valid.length > 0 && valid[0] <= 5.0) {
         return [Array(n).fill(valid[0])];
       }
-      // Show warning in UI
       setTimeout(() => {
         let warn = document.getElementById('combination-warning');
         if (!warn) {
@@ -247,16 +374,16 @@ document.addEventListener('DOMContentLoaded', async () => {
           warn.style.color = '#d48806';
           warn.style.fontSize = '12px';
           warn.style.marginTop = '8px';
-          warn.innerText = 'Only equal-grade suggestion is shown for 5 or more courses (for performance reasons).';
-          if (targetResult && targetResult.parentNode) {
-            targetResult.parentNode.appendChild(warn);
-          }
+          warn.innerText = 'Only equal-grade suggestion is shown for 5+ courses (for performance reasons).';
+          if (targetResult && targetResult.parentNode) targetResult.parentNode.appendChild(warn);
         }
       }, 100);
       return [];
     }
   }
 
+  // BUG-2 FIX: use lastTrulyPendingCourses (set in calculateRequiredAverageWithTranscript)
+  // so transcript pending courses are labelled correctly in suggestions
   function showCurrentCombination() {
     if (!gradeCombinations.length) return;
     const comb = gradeCombinations[currentCombinationIndex];
@@ -264,7 +391,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     for (let i = 0; i < comb.length; ++i) {
       const num = comb[i];
       const letter = numericToLetterGrade(num);
-      html += `<li>${userCourses[i].name}: <b>${num}</b> (${letter})</li>`;
+      const name = lastTrulyPendingCourses[i]?.courseName || `Course ${i + 1}`;
+      html += `<li>${name}: <b>${num}</b> (${letter})</li>`;
     }
     html += '</ul>';
     html += `<div style="margin-top:6px;font-size:12px;color:#888;">Suggestion ${currentCombinationIndex + 1} of ${gradeCombinations.length}</div>`;
@@ -282,7 +410,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (grade === 2.7) return 'C+';
     if (grade === 3.0) return 'C';
     if (grade === 3.3) return 'C-';
-    if (grade === 3.7) return 'D';
+    if (grade === 3.7) return 'D+';
+    if (grade === 4.0) return 'D';
     return 'F';
   }
 

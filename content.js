@@ -39,6 +39,12 @@
   async function init() {
     console.log('🎓 GUC GPA Calculator: Initializing...');
     
+    // Safety check: Only run on the transcript page
+    if (!window.location.href.toLowerCase().includes('transcript_001.aspx')) {
+      console.log('🎓 GUC GPA Calculator: Not on transcript page. Aborting execution to prevent data corruption.');
+      return;
+    }
+    
     // Load stored data
 
     try {
@@ -578,7 +584,7 @@
         input.dataset.courseName = course.courseName;
 
         // Restore saved predicted grade
-        const savedGrade = predictedGrades[course.rowIndex];
+        const savedGrade = predictedGrades[course.courseName];
         if (savedGrade !== undefined) {
           input.value = savedGrade;
         }
@@ -597,22 +603,22 @@
   // Handle grade input changes
   function handleGradeInput(event) {
     const input = event.target;
-    const rowIndex = parseInt(input.dataset.rowIndex);
+    const courseName = input.dataset.courseName;
     const value = parseFloat(input.value);
 
     // Validate input
     if (!isNaN(value)) {
       if (value < CONFIG.MIN_GRADE) {
         input.value = CONFIG.MIN_GRADE;
-        predictedGrades[rowIndex] = CONFIG.MIN_GRADE;
+        predictedGrades[courseName] = CONFIG.MIN_GRADE;
       } else if (value > CONFIG.MAX_GRADE) {
         input.value = CONFIG.MAX_GRADE;
-        predictedGrades[rowIndex] = CONFIG.MAX_GRADE;
+        predictedGrades[courseName] = CONFIG.MAX_GRADE;
       } else {
-        predictedGrades[rowIndex] = value;
+        predictedGrades[courseName] = value;
       }
     } else {
-      delete predictedGrades[rowIndex];
+      delete predictedGrades[courseName];
     }
 
     // Save to storage
@@ -649,12 +655,12 @@
         <div class="guc-section" id="guc-section-overview">
           <div class="guc-section-header" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
             <span style="font-size:15px;font-weight:600;">📈 GPA Overview & Stats</span>
-            <div style="display:flex;gap:8px;align-items:center;">
-              <button id="guc-add-pending-btn" class="guc-btn-small" style="font-size:14px;">➕ Add Pending Course</button>
-              <button id="toggle-overview" class="guc-btn-small" style="font-size:16px;">▲</button>
-            </div>
+            <button id="toggle-overview" class="guc-btn-small" style="font-size:16px;">▲</button>
           </div>
           <div class="guc-section-body" id="guc-overview-body">
+            <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">
+              <button id="guc-add-pending-btn" class="guc-btn-small" style="font-size:14px;">➕ Add Pending Course</button>
+            </div>
             <form id="guc-add-pending-form" class="guc-pending-form" style="display:none;">
               <div class="guc-pending-form-fields">
                 <input id="guc-pending-name" type="text" placeholder="Course Name" required />
@@ -683,23 +689,19 @@
               </div>
             </div>
             <div class="guc-lang-section">
-              <h4>🌍 GPA Without Languages</h4>
+              <h4>🌍 Language GPA Variations</h4>
               <div class="guc-lang-grid">
+                <div class="guc-lang-box">
+                  <span class="guc-lang-label">With English</span>
+                  <span id="guc-gpa-with-english" class="guc-lang-value">-</span>
+                </div>
                 <div class="guc-lang-box">
                   <span class="guc-lang-label">Without German</span>
                   <span id="guc-gpa-no-german" class="guc-lang-value">-</span>
                 </div>
-                <div class="guc-lang-box">
-                  <span class="guc-lang-label">Without English</span>
-                  <span id="guc-gpa-no-english" class="guc-lang-value">-</span>
-                </div>
-                <div class="guc-lang-box guc-lang-both">
-                  <span class="guc-lang-label">Without Both</span>
-                  <span id="guc-gpa-no-langs" class="guc-lang-value">-</span>
-                </div>
               </div>
-              <div id="guc-lang-info" class="guc-lang-info"></div>
             </div>
+            <div id="guc-lang-info" class="guc-lang-info"></div>
             <div class="guc-stats-section">
               <h4>📊 Statistics</h4>
               <div class="guc-stats-grid">
@@ -739,7 +741,7 @@
             <div class="guc-goal-section">
               <div class="guc-goal-input-group">
                 <label for="guc-target-gpa">Target GPA:</label>
-                <input type="number" id="guc-target-gpa" min="${CONFIG.MIN_GRADE}" max="${CONFIG.MAX_GRADE}" step="0.01" placeholder="e.g., 1.7">
+                <input type="number" id="guc-target-gpa" min="0.7" max="5.0" step="0.01" placeholder="e.g., 1.7">
                 <button id="guc-calculate-goal" class="guc-btn guc-btn-primary">Calculate</button>
               </div>
               <div id="guc-goal-result" class="guc-goal-result"></div>
@@ -753,7 +755,7 @@
                   <tr><td>A+</td><td>= 0.7</td><td>A</td><td>= 1.0</td><td>A-</td><td>= 1.3</td></tr>
                   <tr><td>B+</td><td>= 1.7</td><td>B</td><td>= 2.0</td><td>B-</td><td>= 2.3</td></tr>
                   <tr><td>C+</td><td>= 2.7</td><td>C</td><td>= 3.0</td><td>C-</td><td>= 3.3</td></tr>
-                  <tr><td>D</td><td>= 3.7</td><td>F</td><td>= 5.0</td><td></td><td></td></tr>
+                  <tr><td>D+</td><td>= 3.7</td><td>D</td><td>= 4.0</td><td>F</td><td>= 5.0</td></tr>
                 </table>
                 <div style="margin-top:6px;color:#666;">For example, if you get an A+ (0.7–1.0), your GPA is calculated using <b>0.7</b>.</div>
               </div>
@@ -812,6 +814,65 @@
       }
     }
 
+    // Helper to generate the custom dropdown HTML
+    function getDropdownHTML(courseId, selectedGrade) {
+      const grades = [
+        { val: '', text: 'Pending', tier: 'guc-grade-tier-neutral', points: '' },
+        { divider: 'A Range' },
+        { val: '0.7', text: 'A+', tier: 'guc-grade-tier-a', points: '0.7' },
+        { val: '1.0', text: 'A', tier: 'guc-grade-tier-a', points: '1.0' },
+        { val: '1.3', text: 'A-', tier: 'guc-grade-tier-a', points: '1.3' },
+        { divider: 'B Range' },
+        { val: '1.7', text: 'B+', tier: 'guc-grade-tier-b', points: '1.7' },
+        { val: '2.0', text: 'B', tier: 'guc-grade-tier-b', points: '2.0' },
+        { val: '2.3', text: 'B-', tier: 'guc-grade-tier-b', points: '2.3' },
+        { divider: 'C Range' },
+        { val: '2.7', text: 'C+', tier: 'guc-grade-tier-c', points: '2.7' },
+        { val: '3.0', text: 'C', tier: 'guc-grade-tier-c', points: '3.0' },
+        { val: '3.3', text: 'C-', tier: 'guc-grade-tier-c', points: '3.3' },
+        { divider: 'D/F Range' },
+        { val: '3.7', text: 'D+', tier: 'guc-grade-tier-df', points: '3.7' },
+        { val: '4.0', text: 'D', tier: 'guc-grade-tier-df', points: '4.0' },
+        { val: '5.0', text: 'F', tier: 'guc-grade-tier-df', points: '5.0' }
+      ];
+
+      let selectedText = 'Pending';
+      let selectedTier = 'guc-grade-tier-neutral';
+      
+      if (selectedGrade) {
+        const found = grades.find(g => g.val === selectedGrade);
+        if (found) {
+          selectedText = found.text;
+          selectedTier = found.tier;
+        }
+      }
+
+      let menuHTML = '';
+      grades.forEach(g => {
+        if (g.divider) {
+          menuHTML += `<div class="guc-dropdown-divider">${g.divider}</div>`;
+        } else {
+          menuHTML += `
+            <div class="guc-dropdown-item ${g.tier}" data-value="${g.val}">
+              <span>${g.text}</span>
+              ${g.points ? `<span class="guc-grade-points">${g.points}</span>` : ''}
+            </div>
+          `;
+        }
+      });
+
+      return `
+        <div class="guc-dropdown-container" data-id="${courseId}">
+          <div class="guc-dropdown-selected ${selectedTier}">
+            <span class="guc-selected-text">${selectedText}</span>
+          </div>
+          <div class="guc-dropdown-menu">
+            ${menuHTML}
+          </div>
+        </div>
+      `;
+    }
+
     // Render pending courses list
     function renderPendingList() {
       const pendingListSection = document.getElementById('guc-pending-list-section');
@@ -828,6 +889,7 @@
         <li class="guc-pending-item">
           <span class="guc-pending-name">${c.courseName}</span>
           <span class="guc-pending-credits">${c.creditHours} cr</span>
+          ${getDropdownHTML(c.id, c.predictedGrade)}
           <button class="guc-btn guc-btn-small guc-delete-pending" data-id="${c.id}" title="Delete">🗑️</button>
         </li>
       `).join('');
@@ -844,7 +906,41 @@
           }
         });
       });
+      // Add custom dropdown listeners
+      pendingList.querySelectorAll('.guc-dropdown-container').forEach(container => {
+        const selectedEl = container.querySelector('.guc-dropdown-selected');
+        const menuEl = container.querySelector('.guc-dropdown-menu');
+        const id = container.getAttribute('data-id');
+
+        selectedEl.addEventListener('click', (e) => {
+          e.stopPropagation();
+          document.querySelectorAll('.guc-dropdown-menu.guc-show').forEach(m => {
+            if (m !== menuEl) m.classList.remove('guc-show');
+          });
+          menuEl.classList.toggle('guc-show');
+        });
+
+        container.querySelectorAll('.guc-dropdown-item').forEach(item => {
+          item.addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const value = item.getAttribute('data-value');
+            const course = userPendingCourses.find(c => String(c.id) === String(id));
+            if (course) {
+              // Store null (not "") when Pending is selected, consistent with BUG-4 fix
+              course.predictedGrade = value || null;
+              await chrome.storage.local.set({ [USER_PENDING_KEY]: userPendingCourses });
+              updateGPACalculations();
+              renderPendingList();
+            }
+          });
+        });
+      });
     }
+
+    // Close dropdowns on outside click
+    document.addEventListener('click', () => {
+      document.querySelectorAll('.guc-dropdown-menu.guc-show').forEach(m => m.classList.remove('guc-show'));
+    });
     // Render on dashboard open
     renderPendingList();
 
@@ -953,7 +1049,8 @@
   }
 
   function generateGradeCombinations(pendingCourses, requiredSum, userTargetGpa, completedCourses) {
-    const gradeSteps = [0.7, 1.0, 1.3, 1.7, 2.0, 2.3, 2.7, 3.0, 3.3, 3.7, 5.0];
+    // D (4.0) was missing from the original list — now included
+    const gradeSteps = [0.7, 1.0, 1.3, 1.7, 2.0, 2.3, 2.7, 3.0, 3.3, 3.7, 4.0, 5.0];
     const n = pendingCourses.length;
     const credits = pendingCourses.map(c => Number(c.creditHours));
     const combinations = [];
@@ -1041,10 +1138,11 @@
     if (grade === 1.7) return 'B+';
     if (grade === 2.0) return 'B';
     if (grade === 2.3) return 'B-';
-    if (grade === 2.7) return 'C+';
-    if (grade === 3.0) return 'C';
-    if (grade === 3.3) return 'C-';
-    if (grade === 3.7) return 'D';
+    if (grade <= 2.7) return 'C+';
+    if (grade <= 3.0) return 'C';
+    if (grade <= 3.3) return 'C-';
+    if (grade <= 3.7) return 'D+';
+    if (grade <= 4.0) return 'D';
     return 'F';
   }
 
@@ -1065,9 +1163,8 @@
     let pendingCount = 0;
 
     // Language-specific counters
-    let noGermanCredits = 0, noGermanWeightedSum = 0;
-    let noEnglishCredits = 0, noEnglishWeightedSum = 0;
-    let noLangsCredits = 0, noLangsWeightedSum = 0;
+    let englishCompletedCredits = 0, englishCompletedWeightedSum = 0;
+    let germanCompletedCredits = 0, germanCompletedWeightedSum = 0;
     
     // Track language courses for info display
     let germanCourses = [];
@@ -1079,40 +1176,46 @@
       if (course.isSuperseded) return;
 
       if (!course.isPending && course.grade !== null) {
-        // Completed course
-        completedCredits += course.creditHours;
-        completedWeightedSum += course.grade * course.creditHours;
-        completedCount++;
-
-        // Also add to predicted totals
-        predictedCredits += course.creditHours;
-        predictedWeightedSum += course.grade * course.creditHours;
-
-        // Calculate GPA variants without languages
-        if (!course.isGerman) {
-          noGermanCredits += course.creditHours;
-          noGermanWeightedSum += course.grade * course.creditHours;
-        } else {
-          germanCourses.push({ name: course.courseName, grade: course.grade, credits: course.creditHours, level: course.germanLevel });
-        }
-
-        if (!course.isEnglish) {
-          noEnglishCredits += course.creditHours;
-          noEnglishWeightedSum += course.grade * course.creditHours;
-        } else {
+        if (course.isEnglish) {
+          englishCompletedCredits += course.creditHours;
+          englishCompletedWeightedSum += course.grade * course.creditHours;
           englishCourses.push({ name: course.courseName, grade: course.grade, credits: course.creditHours });
-        }
+        } else {
+          // Main completed course (NO ENGLISH)
+          completedCredits += course.creditHours;
+          completedWeightedSum += course.grade * course.creditHours;
+          completedCount++;
 
-        if (!course.isGerman && !course.isEnglish) {
-          noLangsCredits += course.creditHours;
-          noLangsWeightedSum += course.grade * course.creditHours;
+          // Also add to predicted totals
+          predictedCredits += course.creditHours;
+          predictedWeightedSum += course.grade * course.creditHours;
+
+          if (course.isGerman) {
+            germanCompletedCredits += course.creditHours;
+            germanCompletedWeightedSum += course.grade * course.creditHours;
+            germanCourses.push({ name: course.courseName, grade: course.grade, credits: course.creditHours, level: course.germanLevel });
+          }
         }
       } else if (course.isPending) {
         pendingCount++;
+        // BUG-3 FIX: use parseFloat + grade > 0 guard so empty string never injects grade 0
+        const savedGrade = parseFloat(predictedGrades[course.courseName]);
+        if (!isNaN(savedGrade) && savedGrade > 0) {
+          if (!course.isEnglish) {
+            predictedCredits += course.creditHours;
+            predictedWeightedSum += savedGrade * course.creditHours;
+          }
+        }
       }
     });
 
-    // Add predicted grades from current page (no-op for pending, since now separate)
+    // Add predicted grades from userPendingCourses (assuming they are regular courses)
+    userPendingCourses.forEach((course) => {
+      if (course.predictedGrade) {
+        predictedCredits += course.creditHours;
+        predictedWeightedSum += Number(course.predictedGrade) * course.creditHours;
+      }
+    });
 
     // Calculate GPAs
     const currentGPA = completedCredits > 0 ? 
@@ -1120,13 +1223,14 @@
     const predictedGPA = predictedCredits > 0 ? 
       (predictedWeightedSum / predictedCredits).toFixed(2) : '-';
     
-    // Calculate language-excluded GPAs
+    // Calculate language GPAs
+    const withEnglishCredits = completedCredits + englishCompletedCredits;
+    const withEnglishGPA = withEnglishCredits > 0 ? 
+      ((completedWeightedSum + englishCompletedWeightedSum) / withEnglishCredits).toFixed(2) : '-';
+      
+    const noGermanCredits = completedCredits - germanCompletedCredits;
     const noGermanGPA = noGermanCredits > 0 ? 
-      (noGermanWeightedSum / noGermanCredits).toFixed(2) : '-';
-    const noEnglishGPA = noEnglishCredits > 0 ? 
-      (noEnglishWeightedSum / noEnglishCredits).toFixed(2) : '-';
-    const noLangsGPA = noLangsCredits > 0 ? 
-      (noLangsWeightedSum / noLangsCredits).toFixed(2) : '-';
+      ((completedWeightedSum - germanCompletedWeightedSum) / noGermanCredits).toFixed(2) : '-';
 
     // Update dashboard - main GPA
     const currentGpaEl = document.getElementById('guc-current-gpa');
@@ -1143,12 +1247,10 @@
     
     // Update language-excluded GPAs
     const noGermanEl = document.getElementById('guc-gpa-no-german');
-    const noEnglishEl = document.getElementById('guc-gpa-no-english');
-    const noLangsEl = document.getElementById('guc-gpa-no-langs');
+    const withEnglishEl = document.getElementById('guc-gpa-with-english');
     
     if (noGermanEl) noGermanEl.textContent = noGermanGPA;
-    if (noEnglishEl) noEnglishEl.textContent = noEnglishGPA;
-    if (noLangsEl) noLangsEl.textContent = noLangsGPA;
+    if (withEnglishEl) withEnglishEl.textContent = withEnglishGPA;
 
     // Update language info
     const langInfoEl = document.getElementById('guc-lang-info');
@@ -1181,12 +1283,10 @@
     // Update stored semesters list
     updateSemestersList();
 
-    // Color code GPA values
     colorCodeGPA('guc-current-gpa', parseFloat(currentGPA));
     colorCodeGPA('guc-predicted-gpa', parseFloat(predictedGPA));
     colorCodeGPA('guc-gpa-no-german', parseFloat(noGermanGPA));
-    colorCodeGPA('guc-gpa-no-english', parseFloat(noEnglishGPA));
-    colorCodeGPA('guc-gpa-no-langs', parseFloat(noLangsGPA));
+    colorCodeGPA('guc-gpa-with-english', parseFloat(withEnglishGPA));
   }
 
   // Update the semesters list in dashboard
@@ -1250,26 +1350,44 @@
     let allCourses = getAllStoredCourses();
     allCourses = processGermanCourses(allCourses);
 
+    const trulyPendingCourses = userPendingCourses.filter(c => !c.predictedGrade);
+    const predictedPendingCourses = userPendingCourses.filter(c => c.predictedGrade);
+
     // Calculate current totals
     let completedCredits = 0;
     let completedWeightedSum = 0;
-    let pendingCredits = 0;
+    let transcriptPendingCredits = 0;
+    let transcriptPendingCount = 0;
 
     allCourses.forEach((course) => {
-      if (course.creditHours <= 0 || course.isSuperseded) return;
+      if (course.creditHours <= 0 || course.isSuperseded || course.isEnglish) return;
       if (!course.isPending && course.grade !== null) {
         completedCredits += course.creditHours;
         completedWeightedSum += course.grade * course.creditHours;
+      } else if (course.isPending) {
+        // BUG-3 FIX: use parseFloat + grade > 0 guard
+        const savedGrade = parseFloat(predictedGrades[course.courseName]);
+        if (!isNaN(savedGrade) && savedGrade > 0) {
+          completedCredits += course.creditHours;
+          completedWeightedSum += savedGrade * course.creditHours;
+        } else {
+          transcriptPendingCredits += course.creditHours;
+          transcriptPendingCount++;
+        }
       }
     });
-    // Add pending courses from userPendingCourses
-     pendingCredits = 0;
-    userPendingCourses.forEach((course) => {
-      pendingCredits += course.creditHours;
+
+    // Add predicted pending courses to the "completed" totals
+    predictedPendingCourses.forEach(c => {
+      completedCredits += Number(c.creditHours);
+      completedWeightedSum += Number(c.predictedGrade) * Number(c.creditHours);
     });
 
+    let pendingCredits = trulyPendingCourses.reduce((sum, c) => sum + Number(c.creditHours), 0) + transcriptPendingCredits;
+
     if (pendingCredits === 0) {
-      resultDiv.innerHTML = `<span class="guc-warning">No pending courses found to calculate goal.</span>`;
+      const resultingGPA = completedCredits > 0 ? (completedWeightedSum / completedCredits).toFixed(2) : 'N/A';
+      resultDiv.innerHTML = `<span class="guc-success">All pending courses have predicted grades. Projected GPA: <b>${resultingGPA}</b></span>`;
       return;
     }
 
@@ -1316,7 +1434,7 @@
         <span class="${difficultyClass}">
           ${emoji} To achieve a <strong>${targetGPA}</strong> GPA:
           <br>Average grade needed in pending courses: <strong>${requiredAvgGrade.toFixed(2)}</strong>
-          <br><small>(${pendingCredits} pending credits across ${allCourses.filter(c => c.isPending).length} courses)</small>
+          <br><small>(${pendingCredits} pending credits across ${trulyPendingCourses.length + transcriptPendingCount} courses)</small>
         </span>
       `;
     }
@@ -1430,13 +1548,22 @@
         // Return all completed courses (with grades and credits)
         let allCourses = getAllStoredCourses();
         allCourses = processGermanCourses(allCourses);
-        const completed = allCourses.filter(c => !c.isPending && c.grade !== null && c.creditHours > 0 && !c.isSuperseded)
+        const completed = allCourses.filter(c => !c.isPending && c.grade !== null && c.creditHours > 0 && !c.isSuperseded && !c.isEnglish)
           .map(c => ({
             courseName: c.courseName,
             creditHours: c.creditHours,
             grade: c.grade
           }));
-        sendResponse({ completedCourses: completed });
+        const transcriptPending = allCourses.filter(c => c.isPending && c.creditHours > 0 && !c.isSuperseded && !c.isEnglish)
+          .map(c => ({
+            courseName: c.courseName,
+            creditHours: c.creditHours
+          }));
+        sendResponse({ 
+          completedCourses: completed, 
+          transcriptPendingCourses: transcriptPending,
+          predictedGrades: predictedGrades || {}
+        });
       }
       return true;
     });

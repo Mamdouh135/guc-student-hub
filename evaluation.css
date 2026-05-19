@@ -1,0 +1,80 @@
+/* GUC Evaluation Dashboard */
+.guc-eval-dashboard {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 260px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 12px;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15), 0 2px 8px rgba(0, 74, 153, 0.1);
+  border: 1px solid rgba(0, 74, 153, 0.2);
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  z-index: 999999;
+  overflow: hidden;
+  backdrop-filter: blur(10px);
+  color: #333;
+}
+
+.guc-eval-header {
+  background: linear-gradient(135deg, #004a99 0%, #003366 100%);
+  color: white;
+  padding: 12px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  user-select: none;
+}
+
+.guc-eval-content {
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.guc-eval-btn {
+  padding: 12px;
+  border: none;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  background: linear-gradient(135deg, #d4a843 0%, #b08a2e 100%);
+  color: white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+}
+
+.guc-eval-btn:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(212, 168, 67, 0.4);
+}
+
+.guc-eval-btn-secondary {
+  background: rgba(0, 74, 153, 0.05);
+  color: #004a99;
+  border: 1px solid rgba(0, 74, 153, 0.2);
+}
+
+.guc-eval-btn-secondary:hover {
+  background: rgba(0, 74, 153, 0.1);
+  box-shadow: none;
+  transform: none;
+}
+
+.guc-eval-btn-danger {
+  background: rgba(220, 53, 69, 0.05);
+  color: #dc3545;
+  border: 1px solid rgba(220, 53, 69, 0.2);
+}
+
+.guc-eval-btn-danger:hover {
+  background: rgba(220, 53, 69, 0.1);
+  box-shadow: none;
+  transform: none;
+}

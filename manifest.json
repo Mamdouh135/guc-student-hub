@@ -1,22 +1,29 @@
 {
   "manifest_version": 3,
-  "name": "GUC Transcript GPA Calculator",
-  "version": "2.0.0",
-  "description": "Calculate and predict your GPA on the GUC Student Portal transcript page",
+  "name": "GUC Student Hub",
+  "version": "2.1.0",
+  "description": "GUC Student Hub: track & predict your GPA, simulate grade scenarios, and auto-fill staff evaluations. Built for GUC students.",
   "author": "GUC Student Tools",
   "permissions": [
     "activeTab",
-    "storage"
+    "storage",
+    "tabs"
   ],
   "action": {
     "default_popup": "popup.html",
-    "default_title": "GUC GPA Calculator"
+    "default_title": "GUC Student Hub"
   },
   "content_scripts": [
     {
-      "matches": ["https://apps.guc.edu.eg/*"],
+      "matches": ["https://apps.guc.edu.eg/student_ext/Grade/Transcript_001.aspx*"],
       "js": ["content.js"],
       "css": ["style.css"],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": ["https://apps.guc.edu.eg/student_ext/Evaluation/EvaluateStaff.aspx*"],
+      "js": ["evaluation.js"],
+      "css": ["evaluation.css"],
       "run_at": "document_idle"
     }
   ]
