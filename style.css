@@ -121,8 +121,239 @@
 }
 
 /* ============================================
+   FEATURE 1 — AUTO SYNC
+   ============================================ */
+
+.guc-sync-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 16px;
+  background: rgba(0, 74, 153, 0.06);
+  border-bottom: 1px solid var(--guc-border);
+  animation: guc-slide-in 0.2s ease;
+}
+
+.guc-sync-bar-track {
+  width: 100%;
+  height: 6px;
+  background: rgba(0, 74, 153, 0.12);
+  border-radius: 6px;
+  overflow: hidden;
+}
+
+.guc-sync-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--guc-primary) 0%, var(--guc-primary-light) 100%);
+  border-radius: 6px;
+  transition: width 0.4s ease;
+}
+
+.guc-sync-label {
+  font-size: 11px;
+  color: var(--guc-text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.guc-btn.guc-syncing {
+  opacity: 0.7;
+  cursor: not-allowed;
+  animation: guc-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes guc-pulse {
+  0%, 100% { opacity: 0.7; }
+  50%       { opacity: 1; }
+}
+
+/* Dark mode sync */
+.guc-dark-mode .guc-sync-progress {
+  background: rgba(107, 157, 232, 0.08);
+  border-bottom-color: rgba(100, 120, 200, 0.2);
+}
+.guc-dark-mode .guc-sync-bar-track {
+  background: rgba(107, 157, 232, 0.12);
+}
+
+/* ============================================
+   FEATURE 2 — GPA HISTORY CHART
+   ============================================ */
+
+.guc-chart-section {
+  margin-top: 16px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(0, 74, 153, 0.05) 0%, rgba(0, 74, 153, 0.02) 100%);
+  border-radius: 12px;
+  border: 1px solid var(--guc-border);
+}
+
+.guc-chart-section h4 {
+  margin: 0 0 12px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--guc-primary);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.guc-chart-canvas {
+  width: 100%;
+  border-radius: 8px;
+  display: block;
+}
+
+.guc-chart-empty {
+  font-size: 12px;
+  color: var(--guc-text-muted);
+  text-align: center;
+  padding: 16px;
+  font-style: italic;
+}
+
+/* Tooltip (positioned via JS) */
+.guc-chart-tooltip {
+  position: fixed;
+  background: #1a1d2e;
+  color: #e8ecf4;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 5px 10px;
+  border-radius: 6px;
+  pointer-events: none;
+  z-index: 9999999;
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.3);
+  display: none;
+}
+
+/* Dark mode chart */
+.guc-dark-mode .guc-chart-section {
+  background: linear-gradient(135deg, rgba(107, 157, 232, 0.08) 0%, rgba(107, 157, 232, 0.02) 100%);
+  border-color: rgba(107, 157, 232, 0.2);
+}
+.guc-dark-mode .guc-chart-section h4 {
+  color: var(--guc-primary-light);
+}
+
+/* ============================================
+   FEATURE 3 — WHAT-IF SIMULATOR
+   ============================================ */
+
+.guc-whatif-section {
+  margin-top: 16px;
+  padding: 14px;
+  background: linear-gradient(135deg, rgba(120, 80, 200, 0.07) 0%, rgba(120, 80, 200, 0.02) 100%);
+  border-radius: 12px;
+  border: 1px solid rgba(120, 80, 200, 0.2);
+}
+
+.guc-whatif-section h4 {
+  margin: 0 0 10px 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: #7c4dff;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.guc-whatif-result {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 10px 14px;
+  background: rgba(120, 80, 200, 0.08);
+  border-radius: 10px;
+  margin-bottom: 12px;
+  border: 1px solid rgba(120, 80, 200, 0.15);
+}
+
+.guc-whatif-gpa {
+  font-size: 28px;
+  font-weight: 700;
+  color: #7c4dff;
+  line-height: 1;
+}
+
+.guc-whatif-delta {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.guc-whatif-delta.positive { color: #28a745; }
+.guc-whatif-delta.negative { color: #dc3545; }
+.guc-whatif-delta.neutral  { color: var(--guc-text-muted); }
+
+.guc-whatif-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guc-whatif-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--guc-text);
+}
+
+.guc-whatif-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guc-whatif-original {
+  font-size: 11px;
+  color: var(--guc-text-muted);
+  white-space: nowrap;
+}
+
+.guc-whatif-reset {
+  margin-top: 10px;
+  width: 100%;
+  padding: 7px;
+  border: 1px solid rgba(120, 80, 200, 0.3);
+  border-radius: 8px;
+  background: transparent;
+  color: #7c4dff;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.guc-whatif-reset:hover {
+  background: rgba(120, 80, 200, 0.1);
+}
+
+/* Dark mode What-If */
+.guc-dark-mode .guc-whatif-section {
+  background: linear-gradient(135deg, rgba(140, 100, 255, 0.1) 0%, rgba(140, 100, 255, 0.03) 100%);
+  border-color: rgba(140, 100, 255, 0.2);
+}
+.guc-dark-mode .guc-whatif-section h4 { color: #a98bff; }
+.guc-dark-mode .guc-whatif-gpa        { color: #a98bff; }
+.guc-dark-mode .guc-whatif-result     { background: rgba(140, 100, 255, 0.1); border-color: rgba(140, 100, 255, 0.2); }
+.guc-dark-mode .guc-whatif-reset      { color: #a98bff; border-color: rgba(140, 100, 255, 0.3); }
+.guc-dark-mode .guc-whatif-reset:hover { background: rgba(140, 100, 255, 0.12); }
+.guc-dark-mode .guc-whatif-delta.positive { color: #4cdc82; }
+.guc-dark-mode .guc-whatif-delta.negative { color: #ff6b6b; }
+
+/* ============================================
    FLOATING DASHBOARD
    ============================================ */
+
 
 .guc-dashboard {
   position: fixed;

@@ -1,0 +1,633 @@
+/* ============================================================
+   GUC Student Hub — Schedule Timetable Styles
+   ============================================================ */
+
+/* Dashboard container */
+.guc-sched-dashboard {
+  position: fixed;
+  top: 20px;
+  right: 20px;
+  width: 780px;
+  max-width: calc(100vw - 40px);
+  max-height: 90vh;
+  background: #ffffff;
+  border-radius: 18px;
+  box-shadow: 0 12px 40px rgba(0, 74, 153, 0.18), 0 2px 8px rgba(0,0,0,0.08);
+  border: 1px solid #e2e8f4;
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  z-index: 999999;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  transition: all 0.3s ease;
+}
+
+/* Header */
+.guc-sched-header {
+  background: linear-gradient(135deg, #004a99 0%, #003366 100%);
+  color: white;
+  padding: 14px 18px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: grab;
+  user-select: none;
+  flex-shrink: 0;
+}
+
+.guc-sched-header:active { cursor: grabbing; }
+
+.guc-sched-title {
+  font-size: 16px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.guc-sched-controls {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.guc-sched-btn {
+  background: rgba(255,255,255,0.15);
+  border: 1px solid rgba(255,255,255,0.25);
+  color: white;
+  border-radius: 8px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+}
+
+.guc-sched-btn:hover {
+  background: rgba(255,255,255,0.28);
+}
+
+.guc-sched-btn-icon {
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+}
+
+/* Export bar */
+.guc-sched-export-bar {
+  background: #f0f5ff;
+  border-bottom: 1px solid #dde6f5;
+  padding: 10px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  flex-shrink: 0;
+}
+
+.guc-sched-export-bar label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #004a99;
+  white-space: nowrap;
+}
+
+.guc-sched-export-bar input[type="date"] {
+  font-size: 12px;
+  padding: 4px 8px;
+  border: 1px solid #c8d8ef;
+  border-radius: 6px;
+  color: #333;
+  background: white;
+  cursor: pointer;
+}
+
+.guc-sched-export-bar input[type="date"]:focus {
+  outline: none;
+  border-color: #004a99;
+  box-shadow: 0 0 0 2px rgba(0,74,153,0.15);
+}
+
+/* Body / scroll area */
+.guc-sched-body {
+  overflow-y: auto;
+  overflow-x: auto;
+  padding: 16px;
+  flex: 1;
+}
+
+/* ============================================================
+   TIMETABLE GRID
+   ============================================================ */
+
+.guc-timetable {
+  width: 100%;
+  border-collapse: separate;
+  border-spacing: 3px;
+  min-width: 620px;
+}
+
+/* Header row — day names */
+.guc-timetable thead th {
+  text-align: center;
+  font-size: 13px;
+  font-weight: 700;
+  padding: 8px 4px;
+  border-radius: 8px;
+  color: #004a99;
+  background: rgba(0,74,153,0.06);
+}
+
+.guc-timetable thead th.guc-today {
+  background: linear-gradient(135deg, #004a99, #003366);
+  color: white;
+}
+
+/* Time column */
+.guc-time-cell {
+  font-size: 10px;
+  color: #888;
+  text-align: right;
+  padding: 0 8px 0 0;
+  white-space: nowrap;
+  width: 62px;
+  vertical-align: middle;
+  font-weight: 500;
+}
+
+/* Course cells */
+.guc-slot-cell {
+  vertical-align: top;
+  padding: 2px;
+  height: 68px;
+  min-width: 100px;
+}
+
+.guc-course-block {
+  height: 100%;
+  border-radius: 10px;
+  padding: 7px 9px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  cursor: default;
+  transition: transform 0.15s, box-shadow 0.15s;
+  position: relative;
+  overflow: hidden;
+}
+
+.guc-course-block:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(0,0,0,0.15);
+  z-index: 10;
+}
+
+.guc-course-name {
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.3;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.guc-course-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 4px;
+  gap: 4px;
+}
+
+.guc-course-location {
+  font-size: 10px;
+  font-weight: 600;
+  opacity: 0.85;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.guc-course-type {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: rgba(255,255,255,0.3);
+  white-space: nowrap;
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+}
+
+.guc-slot-empty {
+  height: 100%;
+  border-radius: 8px;
+  background: rgba(0,0,0,0.025);
+}
+
+/* Multiple courses stacked in one cell */
+.guc-multi-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  height: 100%;
+}
+
+.guc-multi-cell .guc-course-block {
+  flex: 1;
+  min-height: 52px;
+}
+
+/* Today column highlight */
+.guc-today-col .guc-slot-empty {
+  background: rgba(0,74,153,0.04);
+}
+
+/* Tooltip */
+.guc-sched-tooltip {
+  position: fixed;
+  background: #1a1d2e;
+  color: #e8ecf4;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  pointer-events: none;
+  z-index: 9999999;
+  max-width: 220px;
+  box-shadow: 0 6px 20px rgba(0,0,0,0.35);
+  display: none;
+  line-height: 1.6;
+}
+
+/* Empty state */
+.guc-sched-empty {
+  text-align: center;
+  padding: 40px 20px;
+  color: #888;
+  font-size: 14px;
+}
+
+.guc-sched-empty span {
+  font-size: 32px;
+  display: block;
+  margin-bottom: 10px;
+}
+
+/* Hidden class */
+.guc-sched-hidden {
+  display: none !important;
+}
+
+/* ============================================================
+   EDIT MODE
+   ============================================================ */
+
+.guc-edit-active {
+  background: rgba(139,92,246,0.3) !important;
+  border-color: rgba(139,92,246,0.6) !important;
+  color: #c4b5fd !important;
+}
+
+.guc-timetable.guc-edit-mode .guc-slot-cell {
+  outline: 1px dashed rgba(139,92,246,0.2);
+}
+
+/* ➕ Add slot button inside empty cells */
+.guc-slot-addable {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  border-radius: 8px;
+  background: rgba(139,92,246,0.06);
+  height: 100%;
+  min-height: 40px;
+}
+
+.guc-add-slot-btn {
+  background: none;
+  border: 2px dashed rgba(139,92,246,0.4);
+  border-radius: 8px;
+  color: rgba(139,92,246,0.7);
+  font-size: 18px;
+  width: 100%;
+  height: 52px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.guc-add-slot-btn:hover {
+  background: rgba(139,92,246,0.12);
+  border-color: #8b5cf6;
+  color: #8b5cf6;
+}
+
+/* Edit/delete overlay on course blocks */
+.guc-edit-actions {
+  position: absolute;
+  top: 3px;
+  right: 3px;
+  display: flex;
+  gap: 3px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+.guc-course-block:hover .guc-edit-actions { opacity: 1; }
+
+.guc-ea-btn {
+  background: rgba(0,0,0,0.35);
+  border: none;
+  border-radius: 4px;
+  color: white;
+  font-size: 11px;
+  padding: 2px 5px;
+  cursor: pointer;
+  transition: background 0.15s;
+}
+.guc-ea-btn:hover { background: rgba(0,0,0,0.6); }
+.guc-ea-del:hover { background: rgba(220,53,69,0.8); }
+
+.guc-ea-locked {
+  font-size: 10px;
+  opacity: 0.5;
+  padding: 2px 4px;
+}
+
+/* Custom entry badge — inline pill, sits between name and meta */
+.guc-custom-badge {
+  display: inline-block;
+  font-size: 7px;
+  font-weight: 800;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  background: rgba(255,255,255,0.22);
+  border-radius: 4px;
+  padding: 1px 4px;
+  margin-top: 2px;
+  opacity: 0.9;
+  align-self: flex-start;
+}
+
+.guc-custom-block {
+  border: 1px solid rgba(139,92,246,0.5) !important;
+}
+
+/* ============================================================
+   MODAL FORM
+   ============================================================ */
+
+.guc-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.55);
+  z-index: 9999998;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  animation: guc-fade-in 0.15s ease;
+}
+
+@keyframes guc-fade-in { from { opacity:0; } to { opacity:1; } }
+
+.guc-modal {
+  background: #ffffff;
+  border-radius: 16px;
+  width: 360px;
+  max-width: calc(100vw - 40px);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+  overflow: hidden;
+  animation: guc-slide-up 0.2s ease;
+}
+
+@keyframes guc-slide-up { from { transform: translateY(20px); opacity:0; } to { transform:none; opacity:1; } }
+
+.guc-modal-header {
+  background: linear-gradient(135deg,#5c35a0,#8b5cf6);
+  color: white;
+  padding: 14px 16px;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.guc-modal-close {
+  background: rgba(255,255,255,0.15);
+  border: none;
+  color: white;
+  width: 26px; height: 26px;
+  border-radius: 50%;
+  cursor: pointer;
+  font-size: 12px;
+  display: flex; align-items:center; justify-content:center;
+}
+.guc-modal-close:hover { background: rgba(255,255,255,0.3); }
+
+.guc-modal-body {
+  padding: 18px 16px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.guc-modal-body label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #5c35a0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-top: 6px;
+}
+
+.guc-modal-body input,
+.guc-modal-body select {
+  width: 100%;
+  padding: 8px 10px;
+  border: 1px solid #dde0f0;
+  border-radius: 8px;
+  font-size: 13px;
+  color: #333;
+  background: #f9f9ff;
+  box-sizing: border-box;
+  outline: none;
+  transition: border-color 0.2s;
+}
+.guc-modal-body input:focus,
+.guc-modal-body select:focus {
+  border-color: #8b5cf6;
+  box-shadow: 0 0 0 3px rgba(139,92,246,0.12);
+}
+
+.guc-modal-footer {
+  padding: 12px 16px 16px;
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+  border-top: 1px solid #f0f0f8;
+}
+
+.guc-modal-btn {
+  padding: 8px 16px;
+  border-radius: 8px;
+  border: 1px solid #dde0f0;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  background: white;
+  color: #555;
+  transition: all 0.15s;
+}
+.guc-modal-btn:hover { background: #f5f5f5; }
+
+.guc-modal-btn-primary {
+  background: linear-gradient(135deg,#5c35a0,#8b5cf6);
+  color: white;
+  border-color: transparent;
+}
+.guc-modal-btn-primary:hover { opacity: 0.9; background: linear-gradient(135deg,#5c35a0,#8b5cf6); }
+
+.guc-modal-btn-danger {
+  color: #dc3545;
+  border-color: #dc3545;
+  margin-right: auto;
+}
+.guc-modal-btn-danger:hover { background: #dc3545; color: white; }
+
+/* Dark mode modal */
+
+.guc-dark-mode .guc-sched-dashboard {
+  background: #1e2235;
+  border-color: rgba(100,120,200,0.2);
+  box-shadow: 0 12px 40px rgba(0,0,0,0.4);
+}
+
+.guc-dark-mode .guc-sched-export-bar {
+  background: rgba(107,157,232,0.08);
+  border-bottom-color: rgba(100,120,200,0.2);
+}
+
+.guc-dark-mode .guc-sched-export-bar label {
+  color: #89b4f8;
+}
+
+.guc-dark-mode .guc-sched-export-bar input[type="date"] {
+  background: #252a3d;
+  border-color: rgba(100,120,200,0.3);
+  color: #e8ecf4;
+  color-scheme: dark;
+}
+
+.guc-dark-mode .guc-timetable thead th {
+  color: #89b4f8;
+  background: rgba(107,157,232,0.08);
+}
+
+.guc-dark-mode .guc-timetable thead th.guc-today {
+  background: linear-gradient(135deg, #3a6bbf, #2a4f99);
+  color: white;
+}
+
+.guc-dark-mode .guc-time-cell {
+  color: #5a6480;
+}
+
+.guc-dark-mode .guc-slot-empty {
+  background: rgba(107,157,232,0.04);
+}
+
+.guc-dark-mode .guc-today-col .guc-slot-empty {
+  background: rgba(107,157,232,0.08);
+}
+
+.guc-dark-mode .guc-sched-empty {
+  color: #5a6480;
+}
+
+/* ============================================================
+   ICS HELP BUTTON & PANEL
+   ============================================================ */
+
+.guc-help-btn {
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 12px;
+  font-weight: 800;
+  background: rgba(255,255,255,0.22) !important;
+  border: 1.5px solid rgba(255,255,255,0.4) !important;
+  color: white !important;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+.guc-help-btn:hover {
+  background: rgba(255,255,255,0.38) !important;
+}
+
+.guc-ics-help-box {
+  background: #f0f6ff;
+  border-top: 1px solid #d0e2f8;
+  border-bottom: 1px solid #d0e2f8;
+  padding: 12px 18px;
+  font-size: 12.5px;
+  color: #2c3e6b;
+  line-height: 1.7;
+  flex-shrink: 0;
+}
+
+.guc-ics-help-box b {
+  font-size: 13px;
+  color: #004a99;
+}
+
+.guc-ics-help-box ul {
+  margin: 8px 0 0 0;
+  padding-left: 18px;
+}
+
+.guc-ics-help-box li {
+  margin-bottom: 5px;
+}
+
+.guc-ics-help-box code {
+  background: rgba(0,74,153,0.1);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-family: monospace;
+  font-size: 11px;
+}
+
+.guc-ics-help-box a {
+  color: #004a99;
+  font-weight: 600;
+  text-decoration: none;
+}
+.guc-ics-help-box a:hover {
+  text-decoration: underline;
+}
+
+/* Dark mode */
+.guc-dark-mode .guc-ics-help-box {
+  background: rgba(107,157,232,0.07);
+  border-color: rgba(100,120,200,0.2);
+  color: #c8d8f0;
+}
+.guc-dark-mode .guc-ics-help-box b {
+  color: #89b4f8;
+}
+.guc-dark-mode .guc-ics-help-box code {
+  background: rgba(107,157,232,0.15);
+}
+.guc-dark-mode .guc-ics-help-box a {
+  color: #89b4f8;
+}

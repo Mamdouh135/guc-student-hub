@@ -1,13 +1,17 @@
 {
   "manifest_version": 3,
   "name": "GUC Student Hub",
-  "version": "2.1.0",
-  "description": "GUC Student Hub: track & predict your GPA, simulate grade scenarios, and auto-fill staff evaluations. Built for GUC students.",
+  "version": "2.2.0",
+  "description": "GUC Student Hub: track & predict your GPA, simulate grade scenarios, view your weekly schedule, export to calendar, and auto-fill staff evaluations. Built for GUC students.",
   "author": "GUC Student Tools",
   "permissions": [
     "activeTab",
-    "storage",
-    "tabs"
+    "storage"
+  ],
+  "host_permissions": [
+    "https://apps.guc.edu.eg/student_ext/Grade/Transcript_001.aspx*",
+    "https://apps.guc.edu.eg/student_ext/Evaluation/EvaluateStaff.aspx*",
+    "https://apps.guc.edu.eg/student_ext/Scheduling/GroupSchedule.aspx*"
   ],
   "action": {
     "default_popup": "popup.html",
@@ -15,15 +19,39 @@
   },
   "content_scripts": [
     {
-      "matches": ["https://apps.guc.edu.eg/student_ext/Grade/Transcript_001.aspx*"],
-      "js": ["content.js"],
-      "css": ["style.css"],
+      "matches": [
+        "https://apps.guc.edu.eg/student_ext/Grade/Transcript_001.aspx*"
+      ],
+      "js": [
+        "content.js"
+      ],
+      "css": [
+        "style.css"
+      ],
       "run_at": "document_idle"
     },
     {
-      "matches": ["https://apps.guc.edu.eg/student_ext/Evaluation/EvaluateStaff.aspx*"],
-      "js": ["evaluation.js"],
-      "css": ["evaluation.css"],
+      "matches": [
+        "https://apps.guc.edu.eg/student_ext/Evaluation/EvaluateStaff.aspx*"
+      ],
+      "js": [
+        "evaluation.js"
+      ],
+      "css": [
+        "evaluation.css"
+      ],
+      "run_at": "document_idle"
+    },
+    {
+      "matches": [
+        "https://apps.guc.edu.eg/student_ext/Scheduling/GroupSchedule.aspx*"
+      ],
+      "js": [
+        "schedule.js"
+      ],
+      "css": [
+        "schedule.css"
+      ],
       "run_at": "document_idle"
     }
   ]

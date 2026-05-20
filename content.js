@@ -24,6 +24,7 @@
   // State
   let isEnabled = true;
   let isDarkMode = false;
+  let isSyncing = false;           // Auto-sync in progress flag
   let currentSemesterData = [];   // Courses from current page
   let allSemestersData = {};      // All stored semesters {semesterId: courses[]}
   let predictedGrades = {};
@@ -34,6 +35,7 @@
   let currentSemesterId = '';
   let creditHoursCol = -1;
   let gradeCol = -1;
+  let whatIfOverrides = {};        // In-memory only — never persisted
 
   // Initialize extension
   async function init() {
@@ -168,14 +170,11 @@
 
   // Handle semester dropdown change
   async function onSemesterChange() {
+    if (isSyncing) return; // Don't react to programmatic changes during auto-sync
     console.log('🎓 Semester changed, waiting for page update...');
-    
-    // Wait a bit for page to update (AJAX or page reload)
     setTimeout(async () => {
       currentSemesterId = getSemesterIdFromDropdown();
       console.log(`🎓 New semester: ${currentSemesterId}`);
-      
-      // Re-find and re-scrape
       transcriptTable = findTranscriptTable();
       if (transcriptTable) {
         creditHoursCol = -1;
@@ -184,8 +183,174 @@
         scrapeCurrentSemester();
         await saveSemesterData();
         updateGPACalculations();
+        injectPredictorInputs();
       }
     }, 1000);
+  }
+
+  // Wait for the transcript table to change after a semester switch (MutationObserver + timeout fallback)
+  function waitForTableUpdate(timeoutMs = 3500) {
+    return new Promise((resolve) => {
+      const previousTable = transcriptTable;
+      let settled = false;
+
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        observer.disconnect();
+        resolve();
+      };
+
+      const observer = new MutationObserver(() => {
+        const newTable = findTranscriptTable();
+        if (newTable && newTable !== previousTable) { finish(); return; }
+        if (newTable && newTable.querySelectorAll('tr').length !== (previousTable?.querySelectorAll('tr').length ?? 0)) { finish(); return; }
+        // Also resolve early if rate-limit page appears — we want to detect and handle it
+        if (getRateLimitSeconds() !== null) finish();
+      });
+      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
+      setTimeout(finish, timeoutMs);
+    });
+  }
+
+  // Detect GUC's server overload rate-limit message and parse the wait seconds
+  // Returns null if not rate-limited, or the number of seconds to wait
+  function getRateLimitSeconds() {
+    const bodyText = document.body ? document.body.innerText : '';
+    // Matches patterns like "00:00:36 Seconds" or "00:01:05 Seconds"
+    const match = bodyText.match(/(\d{2}):(\d{2}):(\d{2})\s*[Ss]econds?/);
+    if (!match) return null;
+    const h = parseInt(match[1], 10);
+    const m = parseInt(match[2], 10);
+    const s = parseInt(match[3], 10);
+    return h * 3600 + m * 60 + s;
+  }
+
+  // Show a rate-limit countdown in the progress bar and wait
+  async function waitForRateLimit(seconds, semName) {
+    console.log(`🎓 Auto-sync: rate limited! Waiting ${seconds}s before retrying "${semName}"...`);
+    const totalWait = seconds + 3; // 3s extra buffer
+    for (let remaining = totalWait; remaining > 0; remaining--) {
+      const bar = document.getElementById('guc-sync-progress');
+      if (bar) {
+        bar.innerHTML = `
+          <div class="guc-sync-bar-track">
+            <div class="guc-sync-bar-fill" style="width:${Math.round(((totalWait - remaining) / totalWait) * 100)}%;background:linear-gradient(90deg,#dc3545,#fd7e14);"></div>
+          </div>
+          <span class="guc-sync-label">⏳ Rate limited — retrying "<b>${semName}</b>" in ${remaining}s...</span>
+        `;
+      }
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  // Update the sync progress indicator in the dashboard
+  function updateSyncProgress(current, total, semesterName, status = '') {
+    const bar = document.getElementById('guc-sync-progress');
+    const btn = document.getElementById('guc-sync-btn');
+    if (!bar) return;
+    if (current === 0 && total === 0) {
+      bar.style.display = 'none';
+      if (btn) { btn.disabled = false; btn.textContent = '🔁 Sync All'; btn.classList.remove('guc-syncing'); }
+    } else {
+      bar.style.display = 'flex';
+      bar.innerHTML = `
+        <div class="guc-sync-bar-track">
+          <div class="guc-sync-bar-fill" style="width:${Math.round((current / total) * 100)}%"></div>
+        </div>
+        <span class="guc-sync-label">${status || `Syncing ${current}/${total}:`} <b>${semesterName}</b></span>
+      `;
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing...'; btn.classList.add('guc-syncing'); }
+    }
+  }
+
+  // Auto-sync: iterate every semester option, scrape and store each one
+  // Handles GUC's server-side rate limiter gracefully
+  async function autoSyncAllSemesters() {
+    if (!semesterDropdown) {
+      alert('No semester dropdown found on this page. Please navigate to the transcript page first.');
+      return;
+    }
+    if (isSyncing) return;
+    isSyncing = true;
+
+    const options = Array.from(semesterDropdown.options);
+    const originalValue = semesterDropdown.value;
+    console.log(`🎓 Auto-sync: starting ${options.length} semesters`);
+
+    for (let i = 0; i < options.length; i++) {
+      const option = options[i];
+      const semName = option.textContent.trim();
+      updateSyncProgress(i + 1, options.length, semName);
+
+      let retries = 3;
+      let saved = false;
+
+      while (retries-- > 0 && !saved) {
+        // Select this semester programmatically
+        semesterDropdown.value = option.value;
+        semesterDropdown.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // Wait for the DOM to update
+        await waitForTableUpdate(3500);
+        // Extra buffer for slow ASP.NET postbacks
+        await new Promise(r => setTimeout(r, 800));
+
+        // Check if we hit the rate limit page
+        const waitSecs = getRateLimitSeconds();
+        if (waitSecs !== null) {
+          await waitForRateLimit(waitSecs, semName);
+          // Re-show progress and retry
+          updateSyncProgress(i + 1, options.length, semName);
+          continue;
+        }
+
+        // Try to find and scrape the table
+        currentSemesterId = getSemesterIdFromDropdown();
+        transcriptTable = findTranscriptTable();
+        if (transcriptTable) {
+          creditHoursCol = -1;
+          gradeCol = -1;
+          detectColumns();
+          scrapeCurrentSemester();
+          await saveSemesterData();
+          console.log(`🎓 Auto-sync: saved "${semName}"`);
+          saved = true;
+        } else {
+          console.log(`🎓 Auto-sync: no table found for "${semName}", attempt ${3 - retries}/3`);
+        }
+      }
+
+      if (!saved) {
+        console.warn(`🎓 Auto-sync: could not save "${semName}" after 3 attempts, skipping.`);
+      }
+
+      // Polite delay between semesters to avoid triggering the rate limiter
+      // GUC's threshold appears to be ~1 req/sec; we use 2.5s to stay well under
+      if (i < options.length - 1) {
+        await new Promise(r => setTimeout(r, 2500));
+      }
+    }
+
+    // Restore original selection
+    updateSyncProgress(options.length, options.length, 'Restoring...', 'Finishing:');
+    semesterDropdown.value = originalValue;
+    semesterDropdown.dispatchEvent(new Event('change', { bubbles: true }));
+    await waitForTableUpdate(3000);
+    await new Promise(r => setTimeout(r, 800));
+    currentSemesterId = getSemesterIdFromDropdown();
+    transcriptTable = findTranscriptTable();
+    if (transcriptTable) {
+      creditHoursCol = -1; gradeCol = -1;
+      detectColumns();
+      scrapeCurrentSemester();
+      injectPredictorInputs();
+    }
+
+    isSyncing = false;
+    updateSyncProgress(0, 0, '');
+    updateGPACalculations();
+    console.log('🎓 Auto-sync: complete!');
   }
 
   // Find transcript table on current page
@@ -646,10 +811,12 @@
       <div class="guc-dashboard-header">
         <h3>📊 GPA Calculator</h3>
         <div class="guc-dashboard-controls">
+          <button id="guc-sync-btn" class="guc-btn guc-btn-icon" title="Sync All Semesters" style="font-size:13px;width:auto;padding:0 8px;">🔁 Sync All</button>
           <button id="guc-dark-toggle" class="guc-btn guc-btn-icon" title="Toggle Dark Mode">🌙</button>
           <button id="guc-minimize" class="guc-btn guc-btn-icon" title="Minimize">➖</button>
         </div>
       </div>
+      <div id="guc-sync-progress" class="guc-sync-progress" style="display:none;"></div>
 
       <div class="guc-dashboard-content">
         <div class="guc-section" id="guc-section-overview">
@@ -762,8 +929,41 @@
             </div>
           </div>
         </div>
+
+        <!-- Feature 2: GPA History Chart -->
+        <div class="guc-section" id="guc-section-chart">
+          <div class="guc-section-header" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+            <span style="font-size:15px;font-weight:600;">📈 GPA History</span>
+            <button id="toggle-chart" class="guc-btn-small" style="font-size:16px;">▼</button>
+          </div>
+          <div class="guc-section-body" id="guc-chart-body" style="display:none;">
+            <div class="guc-chart-section">
+              <div id="guc-chart-container"><span class="guc-chart-empty">Sync semesters to see your GPA history chart.</span></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Feature 3: What-If Simulator -->
+        <div class="guc-section" id="guc-section-whatif">
+          <div class="guc-section-header" style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;">
+            <span style="font-size:15px;font-weight:600;">🧮 What-If Simulator</span>
+            <button id="toggle-whatif" class="guc-btn-small" style="font-size:16px;">▼</button>
+          </div>
+          <div class="guc-section-body" id="guc-whatif-body" style="display:none;">
+            <div class="guc-whatif-section">
+              <div class="guc-whatif-result" id="guc-whatif-result" style="display:none;">
+                <span class="guc-whatif-gpa" id="guc-whatif-gpa">-</span>
+                <span class="guc-whatif-delta" id="guc-whatif-delta"></span>
+              </div>
+              <ul class="guc-whatif-list" id="guc-whatif-list"></ul>
+              <button class="guc-whatif-reset" id="guc-whatif-reset">🔄 Reset Simulation</button>
+            </div>
+          </div>
+        </div>
+
       </div>
     `;
+
 
     document.body.appendChild(dashboard);
 
@@ -947,6 +1147,7 @@
     // Add event listeners
     document.getElementById('guc-dark-toggle').addEventListener('click', toggleDarkMode);
     document.getElementById('guc-minimize').addEventListener('click', toggleMinimize);
+    document.getElementById('guc-sync-btn').addEventListener('click', autoSyncAllSemesters);
     document.getElementById('guc-calculate-goal').addEventListener('click', (e) => { e.preventDefault(); calculateGoalWithSuggestions(); });
     document.getElementById('guc-target-gpa').addEventListener('keypress', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); calculateGoalWithSuggestions(); }
@@ -957,29 +1158,35 @@
     // Collapsible section toggles
     const overviewBody = document.getElementById('guc-overview-body');
     const goalBody = document.getElementById('guc-goal-body');
+    const chartBody = document.getElementById('guc-chart-body');
+    const whatifBody = document.getElementById('guc-whatif-body');
     const toggleOverview = document.getElementById('toggle-overview');
     const toggleGoal = document.getElementById('toggle-goal');
-    toggleOverview.addEventListener('click', () => {
-      if (overviewBody.style.display === 'none') {
-        overviewBody.style.display = '';
-        toggleOverview.textContent = '▲';
-      } else {
-        overviewBody.style.display = 'none';
-        toggleOverview.textContent = '▼';
-      }
+    const toggleChart = document.getElementById('toggle-chart');
+    const toggleWhatif = document.getElementById('toggle-whatif');
+
+    function makeToggle(body, btn, defaultOpen) {
+      if (defaultOpen) { body.style.display = ''; btn.textContent = '▲'; }
+      else             { body.style.display = 'none'; btn.textContent = '▼'; }
+      btn.addEventListener('click', () => {
+        const open = body.style.display !== 'none';
+        body.style.display = open ? 'none' : '';
+        btn.textContent = open ? '▼' : '▲';
+        if (!open && btn === toggleChart) renderGPAChart();
+        if (!open && btn === toggleWhatif) renderWhatIfSection();
+      });
+    }
+
+    makeToggle(overviewBody, toggleOverview, true);
+    makeToggle(goalBody, toggleGoal, false);
+    makeToggle(chartBody, toggleChart, false);
+    makeToggle(whatifBody, toggleWhatif, false);
+
+    // What-If reset button
+    document.getElementById('guc-whatif-reset').addEventListener('click', () => {
+      whatIfOverrides = {};
+      renderWhatIfSection();
     });
-    toggleGoal.addEventListener('click', () => {
-      if (goalBody.style.display === 'none') {
-        goalBody.style.display = '';
-        toggleGoal.textContent = '▼';
-      } else {
-        goalBody.style.display = 'none';
-        toggleGoal.textContent = '▲';
-      }
-    });
-    // Default: Overview open, Goal closed
-    overviewBody.style.display = '';
-    goalBody.style.display = 'none';
 
     // Make dashboard draggable
     makeDraggable(dashboard);
@@ -1287,6 +1494,13 @@
     colorCodeGPA('guc-predicted-gpa', parseFloat(predictedGPA));
     colorCodeGPA('guc-gpa-no-german', parseFloat(noGermanGPA));
     colorCodeGPA('guc-gpa-with-english', parseFloat(withEnglishGPA));
+
+    // Refresh chart if it is open (Feature 2)
+    const chartBody = document.getElementById('guc-chart-body');
+    if (chartBody && chartBody.style.display !== 'none') renderGPAChart();
+    // Refresh what-if if open (Feature 3)
+    const whatifBody = document.getElementById('guc-whatif-body');
+    if (whatifBody && whatifBody.style.display !== 'none') renderWhatIfSection();
   }
 
   // Update the semesters list in dashboard
@@ -1313,6 +1527,231 @@
         </div>
       `;
     }).join('');
+  }
+
+  // ============================================================
+  // FEATURE 2 — GPA History Chart (Canvas API, no external libs)
+  // ============================================================
+  function renderGPAChart() {
+    const container = document.getElementById('guc-chart-container');
+    if (!container) return;
+
+    // Build chronological data points: per-semester cumulative GPA
+    const semesters = Object.entries(allSemestersData);
+    if (semesters.length < 2) {
+      container.innerHTML = '<span class="guc-chart-empty">Need at least 2 synced semesters to show the chart.</span>';
+      return;
+    }
+
+    // Compute cumulative GPA up to each semester (sorted by storage order / name)
+    const dataPoints = [];
+    let runCredits = 0, runWeightedSum = 0;
+
+    semesters.forEach(([id, info]) => {
+      const semName = info.semesterName || id.split('_').slice(1).join(' ') || id;
+      const courses = (info.courses || []).filter(c => !c.isPending && c.grade !== null && c.creditHours > 0 && !c.isSuperseded && !c.isEnglish);
+      courses.forEach(c => {
+        runCredits += Number(c.creditHours);
+        runWeightedSum += Number(c.grade) * Number(c.creditHours);
+      });
+      if (runCredits > 0) {
+        dataPoints.push({ label: semName, gpa: runWeightedSum / runCredits });
+      }
+    });
+
+    if (dataPoints.length < 2) {
+      container.innerHTML = '<span class="guc-chart-empty">Not enough graded data to plot. Sync more semesters.</span>';
+      return;
+    }
+
+    // Canvas setup
+    const W = 290, H = 140;
+    const PAD = { top: 14, right: 14, bottom: 28, left: 36 };
+    const plotW = W - PAD.left - PAD.right;
+    const plotH = H - PAD.top - PAD.bottom;
+
+    container.innerHTML = `<canvas id="guc-chart-canvas" class="guc-chart-canvas" width="${W}" height="${H}" style="width:100%;"></canvas>`;
+    const canvas = document.getElementById('guc-chart-canvas');
+    const ctx = canvas.getContext('2d');
+
+    // Y: GPA 0.7 (best, top) to 5.0 (fail, bottom)
+    const Y_MIN = 0.7, Y_MAX = 5.0;
+    const gpaToY = g => PAD.top + ((g - Y_MIN) / (Y_MAX - Y_MIN)) * plotH;
+    const xStep = plotW / (dataPoints.length - 1);
+    const pts = dataPoints.map((d, i) => ({ x: PAD.left + i * xStep, y: gpaToY(d.gpa), gpa: d.gpa, label: d.label }));
+
+    // Grid lines
+    ctx.strokeStyle = 'rgba(0,74,153,0.08)';
+    ctx.lineWidth = 1;
+    [1.0, 2.0, 3.0, 4.0].forEach(g => {
+      const y = gpaToY(g);
+      ctx.beginPath(); ctx.moveTo(PAD.left, y); ctx.lineTo(PAD.left + plotW, y); ctx.stroke();
+    });
+
+    // Y axis labels
+    ctx.fillStyle = '#aaa';
+    ctx.font = '9px Segoe UI,sans-serif';
+    ctx.textAlign = 'right';
+    [1.0, 2.0, 3.0, 4.0].forEach(g => { ctx.fillText(g.toFixed(1), PAD.left - 4, gpaToY(g) + 3); });
+
+    // Gradient fill under line
+    const grad = ctx.createLinearGradient(0, PAD.top, 0, PAD.top + plotH);
+    grad.addColorStop(0, 'rgba(0,74,153,0.18)');
+    grad.addColorStop(1, 'rgba(0,74,153,0.01)');
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.lineTo(pts[pts.length - 1].x, PAD.top + plotH);
+    ctx.lineTo(pts[0].x, PAD.top + plotH);
+    ctx.closePath();
+    ctx.fillStyle = grad;
+    ctx.fill();
+
+    // Line
+    ctx.beginPath();
+    ctx.moveTo(pts[0].x, pts[0].y);
+    pts.slice(1).forEach(p => ctx.lineTo(p.x, p.y));
+    ctx.strokeStyle = '#004a99';
+    ctx.lineWidth = 2;
+    ctx.lineJoin = 'round';
+    ctx.stroke();
+
+    // Dots — color-coded by GPA quality
+    pts.forEach(p => {
+      const color = p.gpa <= 1.3 ? '#28a745' : p.gpa <= 2.3 ? '#d4a843' : p.gpa <= 3.3 ? '#fd7e14' : '#dc3545';
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+      ctx.fillStyle = color;
+      ctx.fill();
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1.5;
+      ctx.stroke();
+    });
+
+    // X axis labels (abbreviated)
+    ctx.fillStyle = '#888';
+    ctx.font = '9px Segoe UI,sans-serif';
+    ctx.textAlign = 'center';
+    pts.forEach(p => {
+      const short = p.label.replace(/semester/i, 'Sem').substring(0, 10);
+      ctx.fillText(short, p.x, PAD.top + plotH + 14);
+    });
+
+    // Hover tooltip
+    let tooltip = document.getElementById('guc-chart-tooltip');
+    if (!tooltip) {
+      tooltip = document.createElement('div');
+      tooltip.id = 'guc-chart-tooltip';
+      tooltip.className = 'guc-chart-tooltip';
+      document.body.appendChild(tooltip);
+    }
+
+    canvas.addEventListener('mousemove', (e) => {
+      const rect = canvas.getBoundingClientRect();
+      const scaleX = W / rect.width;
+      const mx = (e.clientX - rect.left) * scaleX;
+      let closest = null, minDist = Infinity;
+      pts.forEach(p => { const d = Math.abs(p.x - mx); if (d < minDist) { minDist = d; closest = p; } });
+      if (closest && minDist < 20) {
+        tooltip.style.display = 'block';
+        tooltip.style.left = (e.clientX + 12) + 'px';
+        tooltip.style.top = (e.clientY - 28) + 'px';
+        tooltip.textContent = `${closest.label}: ${closest.gpa.toFixed(2)}`;
+      } else {
+        tooltip.style.display = 'none';
+      }
+    });
+    canvas.addEventListener('mouseleave', () => { tooltip.style.display = 'none'; });
+  }
+
+  // ============================================================
+  // FEATURE 3 — What-If Grade Simulator
+  // ============================================================
+
+  // Calculate simulated GPA using whatIfOverrides (never touches storage)
+  function calculateWhatIfGPA() {
+    let allCourses = getAllStoredCourses();
+    allCourses = processGermanCourses(allCourses);
+
+    let credits = 0, weightedSum = 0;
+    allCourses.forEach(c => {
+      if (c.creditHours <= 0 || c.isSuperseded || c.isEnglish || c.isPending || c.grade === null) return;
+      const override = parseFloat(whatIfOverrides[c.courseName]);
+      const grade = (!isNaN(override) && override > 0) ? override : Number(c.grade);
+      credits += c.creditHours;
+      weightedSum += grade * c.creditHours;
+    });
+    return credits > 0 ? weightedSum / credits : null;
+  }
+
+  // Render the What-If section: list of completed courses with override dropdowns
+  function renderWhatIfSection() {
+    const list = document.getElementById('guc-whatif-list');
+    const resultEl = document.getElementById('guc-whatif-result');
+    const gpaEl = document.getElementById('guc-whatif-gpa');
+    const deltaEl = document.getElementById('guc-whatif-delta');
+    if (!list) return;
+
+    let allCourses = getAllStoredCourses();
+    allCourses = processGermanCourses(allCourses);
+    const completed = allCourses.filter(c => !c.isPending && c.grade !== null && c.creditHours > 0 && !c.isSuperseded && !c.isEnglish);
+
+    if (completed.length === 0) {
+      list.innerHTML = '<li style="font-size:12px;color:#999;padding:8px 0;">No completed courses found. Sync semesters first.</li>';
+      if (resultEl) resultEl.style.display = 'none';
+      return;
+    }
+
+    const gradeSteps = [
+      { val: '0.7', label: 'A+ (0.7)' }, { val: '1.0', label: 'A (1.0)' }, { val: '1.3', label: 'A- (1.3)' },
+      { val: '1.7', label: 'B+ (1.7)' }, { val: '2.0', label: 'B (2.0)' }, { val: '2.3', label: 'B- (2.3)' },
+      { val: '2.7', label: 'C+ (2.7)' }, { val: '3.0', label: 'C (3.0)' }, { val: '3.3', label: 'C- (3.3)' },
+      { val: '3.7', label: 'D+ (3.7)' }, { val: '4.0', label: 'D (4.0)' }, { val: '5.0', label: 'F (5.0)' }
+    ];
+
+    list.innerHTML = completed.map((c, idx) => {
+      const override = whatIfOverrides[c.courseName];
+      const options = gradeSteps.map(g =>
+        `<option value="${g.val}" ${override == g.val ? 'selected' : g.val == c.grade && !override ? 'selected' : ''}>${g.label}</option>`
+      ).join('');
+      const shortName = c.courseName.length > 22 ? c.courseName.substring(0, 20) + '…' : c.courseName;
+      return `
+        <li class="guc-whatif-item" data-idx="${idx}">
+          <span class="guc-whatif-name" title="${c.courseName}">${shortName}</span>
+          <span class="guc-whatif-original">${c.creditHours}cr</span>
+          <select class="guc-whatif-select" data-course="${c.courseName}" style="font-size:11px;border-radius:5px;border:1px solid #ccc;padding:2px 4px;max-width:90px;">
+            ${options}
+          </select>
+        </li>`;
+    }).join('');
+
+    // Wire dropdowns
+    list.querySelectorAll('.guc-whatif-select').forEach(sel => {
+      sel.addEventListener('change', () => {
+        whatIfOverrides[sel.dataset.course] = sel.value;
+        updateWhatIfResult();
+      });
+    });
+
+    updateWhatIfResult();
+
+    function updateWhatIfResult() {
+      const simGPA = calculateWhatIfGPA();
+      if (simGPA === null) { if (resultEl) resultEl.style.display = 'none'; return; }
+
+      // Real GPA (no overrides)
+      const realGPAStr = document.getElementById('guc-current-gpa')?.textContent;
+      const realGPA = parseFloat(realGPAStr);
+
+      if (resultEl) resultEl.style.display = 'flex';
+      if (gpaEl) gpaEl.textContent = simGPA.toFixed(2);
+      if (deltaEl && !isNaN(realGPA)) {
+        const delta = realGPA - simGPA; // positive delta = improvement (lower GPA = better)
+        deltaEl.className = 'guc-whatif-delta ' + (Math.abs(delta) < 0.005 ? 'neutral' : delta > 0 ? 'positive' : 'negative');
+        const sign = delta > 0.005 ? '▼ ' : delta < -0.005 ? '▲ ' : '';
+        deltaEl.textContent = delta === 0 ? 'No change' : `${sign}${Math.abs(delta).toFixed(2)} vs real`;
+      }
+    }
   }
 
   // Color code GPA based on value
