@@ -631,3 +631,99 @@
 .guc-dark-mode .guc-ics-help-box a {
   color: #89b4f8;
 }
+
+/* ============================================================
+   MODE / GROUP SELECTOR BAR
+   ============================================================ */
+
+.guc-sched-mode-bar {
+  background: #f7f9ff;
+  border-bottom: 1px solid #dde6f5;
+  padding: 7px 16px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.guc-mode-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: #004a99;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  white-space: nowrap;
+}
+
+.guc-mode-btns {
+  display: flex;
+  gap: 5px;
+  flex-wrap: wrap;
+}
+
+.guc-mode-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border-radius: 20px;
+  border: 1.5px solid #c8d8ef;
+  background: white;
+  color: #555;
+  cursor: pointer;
+  transition: all 0.18s;
+  white-space: nowrap;
+}
+
+.guc-mode-btn:hover {
+  border-color: #004a99;
+  color: #004a99;
+  background: rgba(0,74,153,0.06);
+}
+
+.guc-mode-btn.guc-mode-active {
+  background: #004a99;
+  color: white;
+  border-color: #004a99;
+}
+
+/* Ramadan button — amber accent */
+.guc-mode-btn-ramadan {
+  border-color: #e67e00;
+  color: #e67e00;
+}
+.guc-mode-btn-ramadan:hover {
+  background: rgba(230,126,0,0.08);
+}
+.guc-mode-btn-ramadan.guc-mode-active {
+  background: linear-gradient(135deg, #e67e00, #f5a623);
+  color: white;
+  border-color: transparent;
+}
+
+/* Dark mode */
+.guc-dark-mode .guc-sched-mode-bar {
+  background: rgba(107,157,232,0.06);
+  border-bottom-color: rgba(100,120,200,0.2);
+}
+.guc-dark-mode .guc-mode-label { color: #89b4f8; }
+.guc-dark-mode .guc-mode-btn {
+  background: rgba(255,255,255,0.05);
+  border-color: rgba(100,120,200,0.3);
+  color: #c8d8f0;
+}
+.guc-dark-mode .guc-mode-btn:hover {
+  border-color: #6b9de8;
+  color: #89b4f8;
+  background: rgba(107,157,232,0.1);
+}
+.guc-dark-mode .guc-mode-btn.guc-mode-active {
+  background: #4a7ec7;
+  color: white;
+  border-color: #4a7ec7;
+}
+.guc-dark-mode .guc-mode-btn-ramadan { border-color: rgba(230,126,0,0.5); color: #f5a623; }
+.guc-dark-mode .guc-mode-btn-ramadan.guc-mode-active {
+  background: linear-gradient(135deg, #c96d00, #e8961a);
+  border-color: transparent;
+  color: white;
+}

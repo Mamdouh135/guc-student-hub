@@ -6,15 +6,42 @@
 (function () {
   console.log('📅 GUC Student Hub: Schedule script loaded');
 
-  // GUC standard time slots indexed by period (0-based)
-  const TIME_SLOTS = [
-    { label: '8:15–9:45',   start: '08:15', end: '09:45' },
-    { label: '10:00–11:30', start: '10:00', end: '11:30' },
-    { label: '11:45–13:15', start: '11:45', end: '13:15' },
-    { label: '13:30–15:00', start: '13:30', end: '15:00' },
-    { label: '15:15–16:45', start: '15:15', end: '16:45' },
-    { label: '17:00–18:30', start: '17:00', end: '18:30' },
-  ];
+  // ── Slot definitions per study group ─────────────────────────────────────
+  // EMBI  = Engineering, Management & Business Informatics
+  // PDAL  = Pharmacy, Dentistry, Applied Arts & Law
+  // Only P3 differs between the two regular groups.
+  const GROUP_SLOTS = {
+    embi: [
+      { label: '8:15–9:45',   start: '08:15', end: '09:45' },
+      { label: '10:00–11:30', start: '10:00', end: '11:30' },
+      { label: '11:45–13:15', start: '11:45', end: '13:15' },
+      { label: '13:45–15:15', start: '13:45', end: '15:15' },
+      { label: '15:45–17:15', start: '15:45', end: '17:15' },
+      { label: '17:00–18:30', start: '17:00', end: '18:30' },
+    ],
+    pdal: [
+      { label: '8:15–9:45',   start: '08:15', end: '09:45' },
+      { label: '10:00–11:30', start: '10:00', end: '11:30' },
+      { label: '12:00–13:30', start: '12:00', end: '13:30' },
+      { label: '13:45–15:15', start: '13:45', end: '15:15' },
+      { label: '15:45–17:15', start: '15:45', end: '17:15' },
+      { label: '17:00–18:30', start: '17:00', end: '18:30' },
+    ],
+    ramadan: [
+      { label: '8:30–9:40',   start: '08:30', end: '09:40' },
+      { label: '9:45–10:55',  start: '09:45', end: '10:55' },
+      { label: '11:00–12:10', start: '11:00', end: '12:10' },
+      { label: '12:20–13:30', start: '12:20', end: '13:30' },
+      { label: '13:35–14:45', start: '13:35', end: '14:45' },
+    ],
+  };
+
+  // Active group — 'embi' | 'pdal' | 'ramadan'. Persisted in chrome.storage.
+  let currentGroup = 'embi';
+  const GROUP_KEY  = 'gucScheduleGroup';
+
+  // Returns the currently active slot array
+  function getTimeSlots() { return GROUP_SLOTS[currentGroup] || GROUP_SLOTS.embi; }
 
   // Display days (columns): Sat first — GUC week
   const DAYS = ['Saturday', 'Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday'];
@@ -31,8 +58,6 @@
   // Period keyword → slot index
   const PERIOD_WORDS = ['first','second','third','fourth','fifth','sixth'];
 
-  // ICS RRULE day codes (display index → BYDAY)
-  const DISPLAY_TO_BYDAY = ['SA','SU','MO','TU','WE','TH'];
 
   const COURSE_COLORS = [
     ['#1565c0','#1976d2'], ['#6a1b9a','#8e24aa'], ['#00695c','#00897b'],
@@ -41,7 +66,7 @@
     ['#3e2723','#5d4037'], ['#1a237e','#283593'], ['#b71c1c','#c62828'],
   ];
 
-  let isDarkMode = false;
+  let isDarkMode    = false;
   let scheduleSlots = [];
   let customSlots   = [];   // user-added entries, persisted
   let editMode      = false;
@@ -53,10 +78,11 @@
     if (!href.includes('groupschedule') && !href.includes('scheduling')) return;
 
     try {
-      const s = await chrome.storage.local.get(['darkMode', CUSTOM_KEY]);
-      isDarkMode  = s.darkMode || false;
-      customSlots = s[CUSTOM_KEY] || [];
-    } catch (e) {}
+      const s = await chrome.storage.local.get(['darkMode', CUSTOM_KEY, GROUP_KEY]);
+      isDarkMode   = s.darkMode   || false;
+      customSlots  = s[CUSTOM_KEY] || [];
+      currentGroup = s[GROUP_KEY]  || autoDetectGroup();
+    } catch (e) { currentGroup = autoDetectGroup(); }
 
     scheduleSlots = scrapeSchedule();
     createDashboard();
@@ -118,7 +144,7 @@
         const cellText = periodCell.textContent.trim();
         if (!cellText || /^free$/i.test(cellText)) return;
 
-        const timeInfo = TIME_SLOTS[slotIdx] || { label: `P${slotIdx+1}`, start:'08:00', end:'09:30' };
+        const timeInfo = getTimeSlots()[slotIdx] || { label: `P${slotIdx+1}`, start:'08:00', end:'09:30' };
         const courses = parseCoursesFromCell(periodCell);
 
         courses.forEach(course => {
@@ -274,6 +300,14 @@
           <button id="guc-sched-minimize" class="guc-sched-btn guc-sched-btn-icon" title="Minimize">➖</button>
         </div>
       </div>
+      <div class="guc-sched-mode-bar" id="guc-sched-mode-bar">
+        <span class="guc-mode-label">Timings:</span>
+        <div class="guc-mode-btns">
+          <button class="guc-mode-btn${currentGroup==='embi'?' guc-mode-active':''}" data-group="embi" title="Engineering, Management &amp; Business Informatics">🏗️ Eng / BI</button>
+          <button class="guc-mode-btn${currentGroup==='pdal'?' guc-mode-active':''}" data-group="pdal" title="Pharmacy, Dentistry, Applied Arts &amp; Law">💊 Ph / Arts / Law</button>
+          <button class="guc-mode-btn guc-mode-btn-ramadan${currentGroup==='ramadan'?' guc-mode-active':''}" data-group="ramadan" title="Ramadan 2026 shortened schedule">🌙 Ramadan</button>
+        </div>
+      </div>
       <div id="guc-sched-collapsible">
         <div class="guc-sched-export-bar">
           <label>📋 Export: </label>
@@ -311,6 +345,10 @@
     document.getElementById('guc-sched-edit').addEventListener('click', toggleEditMode);
     document.getElementById('guc-sched-dark').addEventListener('click', toggleDarkMode);
     document.getElementById('guc-sched-minimize').addEventListener('click', toggleMinimize);
+    document.getElementById('guc-sched-mode-bar').addEventListener('click', e => {
+      const btn = e.target.closest('[data-group]');
+      if (btn) setGroup(btn.dataset.group);
+    });
     document.getElementById('guc-export-ics').addEventListener('click', () => {
       const all = [...scheduleSlots, ...customSlots];
       exportToICS(all,
@@ -342,7 +380,7 @@
   // Show add/edit modal
   function showCourseForm(dayIdx, slotIdx, existingSlot = null) {
     document.getElementById('guc-course-modal')?.remove();
-    const timeLabel = TIME_SLOTS[slotIdx]?.label || `Slot ${slotIdx+1}`;
+    const timeLabel = getTimeSlots()[slotIdx]?.label || `Slot ${slotIdx+1}`;
     const dayName   = DAYS[dayIdx] || '';
     const isEdit    = !!existingSlot;
 
@@ -399,8 +437,8 @@
         dayIndex:   dayIdx,
         slotIndex:  slotIdx,
         timeLabel:  timeLabel,
-        start:      TIME_SLOTS[slotIdx]?.start || '08:00',
-        end:        TIME_SLOTS[slotIdx]?.end   || '09:30',
+        start:      getTimeSlots()[slotIdx]?.start || '08:00',
+        end:        getTimeSlots()[slotIdx]?.end   || '09:30',
         courseName: name,
         location:   document.getElementById('guc-f-loc').value.trim(),
         type:       document.getElementById('guc-f-type').value,
@@ -435,7 +473,7 @@
     }
 
     const grid = {};
-    const maxSlot = Math.max(...(allSlots.length ? allSlots.map(s => s.slotIndex) : [0]), TIME_SLOTS.length - 1);
+    const maxSlot = Math.max(...(allSlots.length ? allSlots.map(s => s.slotIndex) : [0]), getTimeSlots().length - 1);
     allSlots.forEach(s => {
       if (!grid[s.slotIndex]) grid[s.slotIndex] = {};
       if (!grid[s.slotIndex][s.dayIndex]) grid[s.slotIndex][s.dayIndex] = [];
@@ -452,7 +490,7 @@
     html += `</tr></thead><tbody>`;
 
     for (let si = 0; si <= maxSlot; si++) {
-      const ti = TIME_SLOTS[si] || { label: `P${si + 1}` };
+      const ti = getTimeSlots()[si] || { label: `P${si + 1}` };
       html += `<tr><td class="guc-time-cell">${ti.label}</td>`;
 
       DAYS.forEach((_, di) => {
@@ -626,6 +664,28 @@
     setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 1000);
   }
 
+  // ─── Group / Mode helpers ────────────────────────────────────────────────
+
+  // Persist + apply a new group ('embi' | 'pdal' | 'ramadan')
+  async function setGroup(group) {
+    currentGroup = group;
+    try { await chrome.storage.local.set({ [GROUP_KEY]: group }); } catch(e) {}
+    // Sync button states
+    document.querySelectorAll('.guc-mode-btn').forEach(b => {
+      b.classList.toggle('guc-mode-active', b.dataset.group === group);
+    });
+    renderTimetable();
+  }
+
+  // Try to detect PDAL group from visible page content.
+  // Falls back to 'embi' if ambiguous.
+  function autoDetectGroup() {
+    const text = document.body.textContent.toLowerCase();
+    const pdalHints = ['pharmacy', 'pharm', 'dentistry', 'dent', 'applied arts', 'faculty of law', 'law faculty'];
+    if (pdalHints.some(h => text.includes(h))) return 'pdal';
+    return 'embi';
+  }
+
   // ─── Helpers ─────────────────────────────────────────────────────────────
   function toggleDarkMode() {
     isDarkMode = !isDarkMode;
@@ -674,7 +734,6 @@
   }
 
   function fmtDate(d) { return d.toISOString().slice(0,10); }
-  function fmtICSDate(d) { return d.toISOString().replace(/[-:]/g,'').slice(0,15)+'Z'; }
   function fmtICSDateTime(d, h, m) {
     return `${d.getFullYear()}${p2(d.getMonth()+1)}${p2(d.getDate())}T${p2(h)}${p2(m)}00`;
   }

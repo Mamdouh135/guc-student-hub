@@ -24,7 +24,6 @@
   // State
   let isEnabled = true;
   let isDarkMode = false;
-  let isSyncing = false;           // Auto-sync in progress flag
   let currentSemesterData = [];   // Courses from current page
   let allSemestersData = {};      // All stored semesters {semesterId: courses[]}
   let predictedGrades = {};
@@ -80,43 +79,29 @@
       currentSemesterId = window.location.href;
     }
 
-    // Find transcript table on current page
-    transcriptTable = findTranscriptTable();
-    if (!transcriptTable) {
-      console.log('🎓 GUC GPA Calculator: No transcript table found on this page');
-      // Still show dashboard with stored semesters
+    // Find all semester tables on the current year page
+    const semTables = findAllSemesterTables();
+    if (semTables.length === 0) {
+      console.log('🎓 GUC GPA Calculator: No semester tables found — showing stored data.');
       createDashboard();
       updateGPACalculations();
       return;
     }
 
-    console.log('🎓 GUC GPA Calculator: Found transcript table!');
-    
-    // Detect column indices
-    detectColumns();
-    
-    if (creditHoursCol === -1 || gradeCol === -1) {
-      console.log('🎓 GUC GPA Calculator: Could not detect Credit Hours or Grade columns');
-      return;
-    }
+    console.log(`🎓 GUC GPA Calculator: Found ${semTables.length} semester table(s).`);
 
-    console.log(`🎓 Credit Hours column: ${creditHoursCol}, Grade column: ${gradeCol}`);
-
-    // Scrape current page's transcript
-    scrapeCurrentSemester();
-    
-    // Save current semester to storage
+    // Scrape every semester table and save all at once
+    scrapeCurrentSemester(semTables);
     await saveSemesterData();
-    
+
     injectPredictorInputs();
     createDashboard();
     updateGPACalculations();
-    
-    // Apply dark mode if enabled
+
     if (isDarkMode) {
       document.body.classList.add('guc-dark-mode');
     }
-    
+
     console.log('🎓 GUC GPA Calculator: Fully initialized!');
   }
 
@@ -168,19 +153,14 @@
     return selectedOption ? `${selectedOption.value}_${selectedOption.textContent.trim()}` : 'default';
   }
 
-  // Handle semester dropdown change
   async function onSemesterChange() {
-    if (isSyncing) return; // Don't react to programmatic changes during auto-sync
     console.log('🎓 Semester changed, waiting for page update...');
     setTimeout(async () => {
       currentSemesterId = getSemesterIdFromDropdown();
       console.log(`🎓 New semester: ${currentSemesterId}`);
-      transcriptTable = findTranscriptTable();
-      if (transcriptTable) {
-        creditHoursCol = -1;
-        gradeCol = -1;
-        detectColumns();
-        scrapeCurrentSemester();
+      const semTables = findAllSemesterTables();
+      if (semTables.length > 0) {
+        scrapeCurrentSemester(semTables);
         await saveSemesterData();
         updateGPACalculations();
         injectPredictorInputs();
@@ -188,397 +168,228 @@
     }, 1000);
   }
 
-  // Wait for the transcript table to change after a semester switch (MutationObserver + timeout fallback)
-  function waitForTableUpdate(timeoutMs = 3500) {
-    return new Promise((resolve) => {
-      const previousTable = transcriptTable;
-      let settled = false;
+  // ── Semester table discovery ──────────────────────────────────────────────
+  // The GUC transcript page for a selected year renders EACH semester period
+  // (Winter, Spring Makeup, Spring, Summer R1…) as its own <table>.  Every
+  // such table has a <strong> semester-name label in its very first <tr>.
+  // This function finds all of them and returns metadata alongside the element.
+  function findAllSemesterTables() {
+    const results = [];
+    document.querySelectorAll('table').forEach(table => {
+      const firstRow = table.querySelector('tr');
+      if (!firstRow) return;
+      const strong = firstRow.querySelector('strong');
+      if (!strong) return;
+      const label = strong.textContent.trim();
+      // Only accept rows whose label looks like a real semester name
+      if (!label || label.length < 3) return;
+      // Must have at least 3 rows (title + header + one data or GPA row)
+      if (table.querySelectorAll('tr').length < 3) return;
+      // Exclude tables that are clearly not transcript tables
+      const tableText = table.textContent;
+      if (!(/\b(winter|spring|summer|fall|makeup|round)/i.test(label) || /\d{4}/.test(label))) return;
 
-      const finish = () => {
-        if (settled) return;
-        settled = true;
-        observer.disconnect();
-        resolve();
-      };
+      const isMakeup = /makeup/i.test(label);
+      // GUC uses negative session IDs for makeup/retake sessions
+      const hiddenInput = firstRow.querySelector('input[type="hidden"]');
+      const sessionIdVal = hiddenInput ? parseInt(hiddenInput.value) : 0;
+      const isNegativeSession = sessionIdVal < 0;
 
-      const observer = new MutationObserver(() => {
-        const newTable = findTranscriptTable();
-        if (newTable && newTable !== previousTable) { finish(); return; }
-        if (newTable && newTable.querySelectorAll('tr').length !== (previousTable?.querySelectorAll('tr').length ?? 0)) { finish(); return; }
-        // Also resolve early if rate-limit page appears — we want to detect and handle it
-        if (getRateLimitSeconds() !== null) finish();
+      results.push({
+        table,
+        label,                             // e.g. "Winter 2024"
+        isMakeup: isMakeup || isNegativeSession
       });
-      observer.observe(document.body, { childList: true, subtree: true, characterData: true });
-      setTimeout(finish, timeoutMs);
     });
+    return results;
   }
 
-  // Detect GUC's server overload rate-limit message and parse the wait seconds
-  // Returns null if not rate-limited, or the number of seconds to wait
-  function getRateLimitSeconds() {
-    const bodyText = document.body ? document.body.innerText : '';
-    // Matches patterns like "00:00:36 Seconds" or "00:01:05 Seconds"
-    const match = bodyText.match(/(\d{2}):(\d{2}):(\d{2})\s*[Ss]econds?/);
-    if (!match) return null;
-    const h = parseInt(match[1], 10);
-    const m = parseInt(match[2], 10);
-    const s = parseInt(match[3], 10);
-    return h * 3600 + m * 60 + s;
-  }
-
-  // Show a rate-limit countdown in the progress bar and wait
-  async function waitForRateLimit(seconds, semName) {
-    console.log(`🎓 Auto-sync: rate limited! Waiting ${seconds}s before retrying "${semName}"...`);
-    const totalWait = seconds + 3; // 3s extra buffer
-    for (let remaining = totalWait; remaining > 0; remaining--) {
-      const bar = document.getElementById('guc-sync-progress');
-      if (bar) {
-        bar.innerHTML = `
-          <div class="guc-sync-bar-track">
-            <div class="guc-sync-bar-fill" style="width:${Math.round(((totalWait - remaining) / totalWait) * 100)}%;background:linear-gradient(90deg,#dc3545,#fd7e14);"></div>
-          </div>
-          <span class="guc-sync-label">⏳ Rate limited — retrying "<b>${semName}</b>" in ${remaining}s...</span>
-        `;
-      }
-      await new Promise(r => setTimeout(r, 1000));
-    }
-  }
-
-  // Update the sync progress indicator in the dashboard
-  function updateSyncProgress(current, total, semesterName, status = '') {
-    const bar = document.getElementById('guc-sync-progress');
-    const btn = document.getElementById('guc-sync-btn');
-    if (!bar) return;
-    if (current === 0 && total === 0) {
-      bar.style.display = 'none';
-      if (btn) { btn.disabled = false; btn.textContent = '🔁 Sync All'; btn.classList.remove('guc-syncing'); }
-    } else {
-      bar.style.display = 'flex';
-      bar.innerHTML = `
-        <div class="guc-sync-bar-track">
-          <div class="guc-sync-bar-fill" style="width:${Math.round((current / total) * 100)}%"></div>
-        </div>
-        <span class="guc-sync-label">${status || `Syncing ${current}/${total}:`} <b>${semesterName}</b></span>
-      `;
-      if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing...'; btn.classList.add('guc-syncing'); }
-    }
-  }
-
-  // Auto-sync: iterate every semester option, scrape and store each one
-  // Handles GUC's server-side rate limiter gracefully
-  async function autoSyncAllSemesters() {
-    if (!semesterDropdown) {
-      alert('No semester dropdown found on this page. Please navigate to the transcript page first.');
-      return;
-    }
-    if (isSyncing) return;
-    isSyncing = true;
-
-    const options = Array.from(semesterDropdown.options);
-    const originalValue = semesterDropdown.value;
-    console.log(`🎓 Auto-sync: starting ${options.length} semesters`);
-
-    for (let i = 0; i < options.length; i++) {
-      const option = options[i];
-      const semName = option.textContent.trim();
-      updateSyncProgress(i + 1, options.length, semName);
-
-      let retries = 3;
-      let saved = false;
-
-      while (retries-- > 0 && !saved) {
-        // Select this semester programmatically
-        semesterDropdown.value = option.value;
-        semesterDropdown.dispatchEvent(new Event('change', { bubbles: true }));
-
-        // Wait for the DOM to update
-        await waitForTableUpdate(3500);
-        // Extra buffer for slow ASP.NET postbacks
-        await new Promise(r => setTimeout(r, 800));
-
-        // Check if we hit the rate limit page
-        const waitSecs = getRateLimitSeconds();
-        if (waitSecs !== null) {
-          await waitForRateLimit(waitSecs, semName);
-          // Re-show progress and retry
-          updateSyncProgress(i + 1, options.length, semName);
-          continue;
-        }
-
-        // Try to find and scrape the table
-        currentSemesterId = getSemesterIdFromDropdown();
-        transcriptTable = findTranscriptTable();
-        if (transcriptTable) {
-          creditHoursCol = -1;
-          gradeCol = -1;
-          detectColumns();
-          scrapeCurrentSemester();
-          await saveSemesterData();
-          console.log(`🎓 Auto-sync: saved "${semName}"`);
-          saved = true;
-        } else {
-          console.log(`🎓 Auto-sync: no table found for "${semName}", attempt ${3 - retries}/3`);
-        }
-      }
-
-      if (!saved) {
-        console.warn(`🎓 Auto-sync: could not save "${semName}" after 3 attempts, skipping.`);
-      }
-
-      // Polite delay between semesters to avoid triggering the rate limiter
-      // GUC's threshold appears to be ~1 req/sec; we use 2.5s to stay well under
-      if (i < options.length - 1) {
-        await new Promise(r => setTimeout(r, 2500));
-      }
-    }
-
-    // Restore original selection
-    updateSyncProgress(options.length, options.length, 'Restoring...', 'Finishing:');
-    semesterDropdown.value = originalValue;
-    semesterDropdown.dispatchEvent(new Event('change', { bubbles: true }));
-    await waitForTableUpdate(3000);
-    await new Promise(r => setTimeout(r, 800));
-    currentSemesterId = getSemesterIdFromDropdown();
-    transcriptTable = findTranscriptTable();
-    if (transcriptTable) {
-      creditHoursCol = -1; gradeCol = -1;
-      detectColumns();
-      scrapeCurrentSemester();
-      injectPredictorInputs();
-    }
-
-    isSyncing = false;
-    updateSyncProgress(0, 0, '');
-    updateGPACalculations();
-    console.log('🎓 Auto-sync: complete!');
-  }
-
-  // Find transcript table on current page
-  function findTranscriptTable() {
-    // Try common IDs first
-    const commonIds = ['gvTranscript', 'GridView1', 'dgTranscript', 'tblTranscript', 'ContentPlaceHolder1_gvTranscript'];
-    for (const id of commonIds) {
-      const table = document.getElementById(id);
-      if (table && table.tagName === 'TABLE') {
-        console.log(`🎓 Found table by ID: ${id}`);
-        return table;
-      }
-    }
-
-    // Search all tables for ones that look like transcripts
-    const tables = document.querySelectorAll('table');
-    console.log(`🎓 Searching ${tables.length} tables for transcript data...`);
-    
-    for (const table of tables) {
-      if (isTranscriptTable(table)) {
-        console.log('🎓 Found transcript table by content analysis');
-        return table;
-      }
-    }
-
-    return null;
-  }
-
-  // Check if a table looks like a transcript
-  function isTranscriptTable(table) {
-    const text = table.textContent.toLowerCase();
+  // Detect grade col + credit col for a single table using content analysis.
+  // Returns { gradeCol, creditHoursCol } or null if detection fails.
+  function detectColumnsForTable(table) {
     const rows = table.querySelectorAll('tr');
-    
-    // Must have multiple rows
-    if (rows.length < 3) return false;
-    
-    // Look for keywords that indicate a transcript
-    const keywords = ['grade', 'credit', 'course', 'gpa', 'semester', 'hours', 'code'];
-    let keywordCount = 0;
-    for (const keyword of keywords) {
-      if (text.includes(keyword)) keywordCount++;
-    }
-    
-    // Also check for numeric grades (0.7 to 5.0 pattern)
-    const gradePattern = /\b[0-4]\.[0-9]\b/;
-    const hasGrades = gradePattern.test(table.textContent);
-    
-    return keywordCount >= 2 || hasGrades;
-  }
+    if (rows.length < 2) return null;
 
-  // Detect which columns contain credit hours and grades
-  function detectColumns() {
-    if (!transcriptTable) return;
-    
-    const headerRow = transcriptTable.querySelector('tr');
-    if (!headerRow) return;
-
-    const headers = headerRow.querySelectorAll('th, td');
-    
-    headers.forEach((header, index) => {
-      const text = header.textContent.toLowerCase().trim();
-      
-      // Detect credit hours column
-      if (creditHoursCol === -1 && (text.includes('credit') || text.includes('hours') || text.includes('ch') || text.includes('cr.') || text === 'cr')) {
-        creditHoursCol = index;
-        console.log(`🎓 Detected Credit Hours at column ${index}: "${header.textContent.trim()}"`);
-      }
-      
-      // Detect grade column
-      if (gradeCol === -1 && ((text.includes('grade') || text === 'gr' || text === 'gr.') && !text.includes('point'))) {
-        gradeCol = index;
-        console.log(`🎓 Detected Grade at column ${index}: "${header.textContent.trim()}"`);
-      }
-    });
-
-    // If not found by headers, try to detect by content
-    if (creditHoursCol === -1 || gradeCol === -1) {
-      detectColumnsByContent();
-    }
-  }
-
-  // Detect columns by analyzing actual data content
-  function detectColumnsByContent() {
-    if (!transcriptTable) return;
-    
+    // Always prefer content-based detection for the GUC layout:
+    // Row 0 = semester title (colspan cells), Row 1 = column headers,
+    // Row 2+ = actual data.  We analyse rows 2-6.
     const columnPatterns = {};
-    const rows = transcriptTable.querySelectorAll('tr');
-    if (rows.length < 2) return;
+    const dataRows = Array.from(rows).slice(2, Math.min(8, rows.length));
 
-    // Analyze a few data rows
-    const dataRows = Array.from(rows).slice(1, Math.min(6, rows.length));
-    
     dataRows.forEach(row => {
+      // Skip the semester-GPA summary row
+      if (row.textContent.includes('Semester GPA') || row.textContent.includes('Cumulative GPA')) return;
       const cells = row.querySelectorAll('td');
-      cells.forEach((cell, index) => {
-        if (!columnPatterns[index]) {
-          columnPatterns[index] = { creditLike: 0, gradeLike: 0 };
-        }
-        
+      cells.forEach((cell, idx) => {
+        if (!columnPatterns[idx]) columnPatterns[idx] = { creditLike: 0, gradeLike: 0 };
         const text = cell.textContent.trim();
         const num = parseFloat(text);
-        
-        // Credit hours are usually small integers (1-6)
-        if (!isNaN(num) && num >= 1 && num <= 6 && Number.isInteger(num)) {
-          columnPatterns[index].creditLike++;
+        // Credit hours: integer 1–30 (GUC can have 8-credit courses)
+        if (!isNaN(num) && Number.isInteger(num) && num >= 1 && num <= 30) {
+          columnPatterns[idx].creditLike++;
         }
-        
-        // Grades are decimals between 0.7 and 5.0
+        // Numeric grades: decimal in 0.7–5.0 range with a dot
         if (!isNaN(num) && num >= 0.7 && num <= 5.0 && text.includes('.')) {
-          columnPatterns[index].gradeLike++;
+          columnPatterns[idx].gradeLike++;
         }
       });
     });
 
-    // Find best matches
     let bestCreditCol = -1, bestCreditScore = 0;
     let bestGradeCol = -1, bestGradeScore = 0;
-    
-    for (const [col, patterns] of Object.entries(columnPatterns)) {
-      if (patterns.creditLike > bestCreditScore) {
-        bestCreditScore = patterns.creditLike;
-        bestCreditCol = parseInt(col);
-      }
-      if (patterns.gradeLike > bestGradeScore) {
-        bestGradeScore = patterns.gradeLike;
-        bestGradeCol = parseInt(col);
+    for (const [col, p] of Object.entries(columnPatterns)) {
+      const c = parseInt(col);
+      if (p.creditLike > bestCreditScore) { bestCreditScore = p.creditLike; bestCreditCol = c; }
+      if (p.gradeLike  > bestGradeScore)  { bestGradeScore  = p.gradeLike;  bestGradeCol  = c; }
+    }
+
+    // Fallback: check header row (row 1) for known keywords
+    if (bestCreditCol === -1 || bestGradeCol === -1) {
+      const headerRow = rows[1];
+      if (headerRow) {
+        headerRow.querySelectorAll('th, td').forEach((cell, idx) => {
+          const t = cell.textContent.toLowerCase().trim();
+          if (bestCreditCol === -1 && (t.includes('hour') || t.includes('credit') || t === 'cr')) bestCreditCol = idx;
+          if (bestGradeCol  === -1 && (t.includes('numeric') || t === 'gr' || (t.includes('grade') && !t.includes('point')))) bestGradeCol = idx;
+        });
       }
     }
 
-    if (creditHoursCol === -1 && bestCreditCol !== -1) {
-      creditHoursCol = bestCreditCol;
-      console.log(`🎓 Auto-detected Credit Hours at column ${creditHoursCol} (by content)`);
-    }
-    
-    if (gradeCol === -1 && bestGradeCol !== -1) {
-      gradeCol = bestGradeCol;
-      console.log(`🎓 Auto-detected Grade at column ${gradeCol} (by content)`);
-    }
+    if (bestCreditCol === -1 || bestGradeCol === -1) return null;
+    return { gradeCol: bestGradeCol, creditHoursCol: bestCreditCol };
   }
 
-  // Scrape current page's transcript (single semester)
-  function scrapeCurrentSemester() {
+  // Keep legacy references alive (used by injectPredictorInputs which still
+  // operates on the first table found for the current semester).
+  function findTranscriptTable() {
+    const semTables = findAllSemesterTables();
+    return semTables.length > 0 ? semTables[0].table : null;
+  }
+  function detectColumns() { /* no-op: now handled per-table in scrapeCurrentSemester */ }
+
+  // Scrape ALL semester tables found on the current year page.
+  // Each table is stored as a separate period entry in allSemestersData so
+  // the GPA chart and stats can distinguish Winter vs Spring vs Summer, etc.
+  function scrapeCurrentSemester(semTables) {
     currentSemesterData = [];
-    if (!transcriptTable) return;
+    if (!semTables || semTables.length === 0) return;
 
-    const rows = transcriptTable.querySelectorAll('tr');
-    let rowIndex = 0;
-    let isFirstRow = true;
+    // Keep a reference to the first table for injectPredictorInputs (legacy)
+    transcriptTable = semTables[0].table;
 
-    rows.forEach((row) => {
-      // Skip header rows
-      if (isFirstRow || row.querySelectorAll('th').length > 0) {
-        isFirstRow = false;
+    semTables.forEach(({ table, label, isMakeup }) => {
+      // Detect columns independently for each table
+      const cols = detectColumnsForTable(table);
+      if (!cols) {
+        console.log(`🎓 Could not detect columns for table "${label}" — skipping.`);
         return;
       }
+      const { gradeCol: gCol, creditHoursCol: chCol } = cols;
 
-      const cells = row.querySelectorAll('td');
-      if (cells.length <= Math.max(creditHoursCol, gradeCol)) return;
+      // Unique storage key for this period: yearId + sanitised label
+      const periodId = `${currentSemesterId}__${label.replace(/\s+/g, '_')}`;
 
-      const creditHoursText = cells[creditHoursCol]?.textContent?.trim();
-      const gradeText = cells[gradeCol]?.textContent?.trim();
-      
-      const creditHours = parseFloat(creditHoursText);
-      const grade = parseFloat(gradeText);
+      const rows = table.querySelectorAll('tr');
+      let rowIndex = 0;
 
-      // Get course name (usually first or second column)
-      const courseName = cells[1]?.textContent?.trim() || cells[0]?.textContent?.trim() || `Course ${rowIndex}`;
+      rows.forEach((row, ri) => {
+        // Row 0 = semester title, Row 1 = column headers — always skip both
+        if (ri <= 1) return;
 
-      const isPending = !gradeText || 
-                        gradeText.toLowerCase() === 'pending' || 
-                        gradeText === '-' || 
-                        gradeText === '' ||
-                        gradeText === 'N/A' ||
-                        gradeText === '--' ||
-                        isNaN(grade);
+        // Skip the "Semester GPA" summary row
+        if (row.textContent.includes('Semester GPA') || row.textContent.includes('Cumulative GPA')) return;
 
-      // Only add rows that look like actual course entries
-      if (!isNaN(creditHours) && creditHours > 0) {
-        // Detect language course type
-        const langInfo = detectLanguageCourse(courseName, creditHours);
-        
-        currentSemesterData.push({
-          rowIndex: rowIndex,
-          row: row,
-          gradeCell: cells[gradeCol],
-          courseName: courseName,
-          creditHours: creditHours,
-          grade: isPending ? null : grade,
-          isPending: isPending,
-          isGerman: langInfo.isGerman,
-          germanLevel: langInfo.germanLevel,
-          isEnglish: langInfo.isEnglish,
-          semesterId: currentSemesterId
-        });
-        
-        rowIndex++;
-      }
+        const cells = row.querySelectorAll('td');
+        if (cells.length <= Math.max(chCol, gCol)) return;
+
+        const creditHoursText = cells[chCol]?.textContent?.trim();
+        const gradeText       = cells[gCol]?.textContent?.trim();
+        const creditHours     = parseFloat(creditHoursText);
+        const grade           = parseFloat(gradeText);
+        const courseName      = cells[1]?.textContent?.trim() || cells[0]?.textContent?.trim() || `Course ${rowIndex}`;
+
+        // Sanity-check: reject the GPA-total row (very high credit value) and empty rows
+        if (!courseName || (creditHours > 30)) return;
+
+        const isPending = !gradeText ||
+          gradeText.toLowerCase() === 'pending' ||
+          ['', '-', '--', 'n/a'].includes(gradeText.toLowerCase()) ||
+          isNaN(grade);
+
+        if (!isNaN(creditHours) && creditHours > 0) {
+          const langInfo = detectLanguageCourse(courseName, creditHours);
+          currentSemesterData.push({
+            rowIndex:    rowIndex,
+            row:         row,
+            gradeCell:   cells[gCol],
+            courseName,
+            creditHours,
+            grade:       isPending ? null : grade,
+            isPending,
+            isGerman:    langInfo.isGerman,
+            germanLevel: langInfo.germanLevel,
+            isEnglish:   langInfo.isEnglish,
+            isMakeup,                // true for Makeup/negative-session tables
+            semesterId:  periodId    // per-period key, not just the year
+          });
+          rowIndex++;
+        }
+      });
+
+      console.log(`🎓 Scraped ${rowIndex} courses from "${label}" (${isMakeup ? 'makeup' : 'regular'})`);
     });
 
-    console.log(`🎓 Scraped ${currentSemesterData.length} courses from current semester: ${currentSemesterId}`);
+    // Keep global col vars in sync with first table (for legacy code)
+    const firstCols = detectColumnsForTable(semTables[0].table);
+    if (firstCols) {
+      gradeCol = firstCols.gradeCol;
+      creditHoursCol = firstCols.creditHoursCol;
+    }
+
+    console.log(`🎓 Total courses scraped this page: ${currentSemesterData.length}`);
   }
 
-  // Save current semester data to Chrome storage
+  // Persist every semester period found on the current page.
+  // Each period gets its own key in allSemestersData so the chart and
+  // stats distinguish Winter, Spring, Summer rounds, etc.
   async function saveSemesterData() {
     if (currentSemesterData.length === 0) return;
 
-    // Create serializable version (without DOM references)
-    const coursesToStore = currentSemesterData.map(course => ({
-      courseName: course.courseName,
-      creditHours: course.creditHours,
-      grade: course.grade,
-      isPending: course.isPending,
-      isGerman: course.isGerman,
-      germanLevel: course.germanLevel,
-      isEnglish: course.isEnglish
-    }));
+    // Group scraped courses by their periodId
+    const byPeriod = {};
+    currentSemesterData.forEach(course => {
+      const pid = course.semesterId;
+      if (!byPeriod[pid]) byPeriod[pid] = [];
+      byPeriod[pid].push(course);
+    });
 
-    // Update stored semesters
-    allSemestersData[currentSemesterId] = {
-      courses: coursesToStore,
-      semesterName: getSemesterDisplayName(),
-      lastUpdated: new Date().toISOString()
-    };
+    for (const [periodId, courses] of Object.entries(byPeriod)) {
+      // Derive a human-readable label from the periodId
+      // Format: "22_2024-2025__Winter_2024"  →  "Winter 2024"
+      const parts = periodId.split('__');
+      const semesterLabel = parts[1] ? parts[1].replace(/_/g, ' ') : getSemesterDisplayName();
 
-    // Save to Chrome storage
+      const coursesToStore = courses.map(c => ({
+        courseName:  c.courseName,
+        creditHours: c.creditHours,
+        grade:       c.grade,
+        isPending:   c.isPending,
+        isGerman:    c.isGerman,
+        germanLevel: c.germanLevel,
+        isEnglish:   c.isEnglish,
+        isMakeup:    c.isMakeup
+      }));
+
+      allSemestersData[periodId] = {
+        courses:      coursesToStore,
+        semesterName: semesterLabel,
+        lastUpdated:  new Date().toISOString()
+      };
+    }
+
     try {
       await chrome.storage.local.set({ [CONFIG.STORAGE_KEY]: allSemestersData });
-      console.log(`🎓 Saved semester "${currentSemesterId}" to storage. Total semesters: ${Object.keys(allSemestersData).length}`);
+      console.log(`🎓 Saved ${Object.keys(byPeriod).length} period(s) for year "${currentSemesterId}". Total stored: ${Object.keys(allSemestersData).length}`);
     } catch (e) {
       console.log('🎓 Could not save to storage:', e);
     }
@@ -593,7 +404,9 @@
     return currentSemesterId;
   }
 
-  // Get all courses from all stored semesters (for cumulative GPA)
+  // Get all courses from all stored semesters (for cumulative GPA).
+  // FIX-1: each call returns fresh plain objects (isSuperseded reset to false)
+  // so processing functions never pollute the shared allSemestersData store.
   function getAllStoredCourses() {
     const allCourses = [];
     
@@ -603,7 +416,8 @@
           allCourses.push({
             ...course,
             semesterId: semesterId,
-            semesterName: semesterInfo.semesterName
+            semesterName: semesterInfo.semesterName,
+            isSuperseded: false   // always start clean; processing functions set this
           });
         });
       }
@@ -716,6 +530,69 @@
     return courses;
   }
 
+  // Process makeup / retaken courses using GUC policy:
+  //
+  //  Key rule — a course is considered the SAME course only when BOTH
+  //  the course name (case-insensitive) AND the credit hours match.
+  //  Example: "Chemistry" (4 cr, lecture) vs "Chemistry" (2 cr, lab)
+  //  are two DIFFERENT courses and both count independently.
+  //
+  //  Deduplication rules once we have confirmed duplicates:
+  //  1. If any entry comes from a *Makeup session* (isMakeup=true):
+  //       → The makeup grade ALWAYS replaces the original (F/FF).
+  //         Supersede all non-makeup entries.
+  //  2. If all entries are from regular/summer sessions (no makeup):
+  //       → Keep the entry with the best (lowest) numeric grade.
+  //         This handles summer retakes where the student improved.
+  function processMakeupCourses(courses) {
+    // Group graded courses by normalised name + credit hours
+    const byKey = {};
+    courses.forEach(course => {
+      if (course.isPending || course.grade === null || course.isSuperseded) return;
+      // Key includes credit hours so same-name-different-credit courses are NOT merged
+      const key = `${course.courseName.trim().toLowerCase()}||${course.creditHours}`;
+      if (!byKey[key]) byKey[key] = [];
+      byKey[key].push(course);
+    });
+
+    for (const [key, group] of Object.entries(byKey)) {
+      if (group.length <= 1) continue;
+
+      const makeupEntries  = group.filter(c =>  c.isMakeup);
+      const regularEntries = group.filter(c => !c.isMakeup);
+
+      if (makeupEntries.length > 0) {
+        // Rule 1: Makeup session exists → supersede ALL regular/summer entries.
+        regularEntries.forEach(c => {
+          c.isSuperseded = true;
+          console.log(`🎓 Makeup supersedes: "${c.courseName}" (${c.creditHours} cr) original grade ${c.grade}`);
+        });
+        // If multiple makeup entries (edge case), keep the best one.
+        if (makeupEntries.length > 1) {
+          const best = Math.min(...makeupEntries.map(c => c.grade));
+          let keptOne = false;
+          makeupEntries.forEach(c => {
+            if (c.grade === best && !keptOne) { keptOne = true; }
+            else { c.isSuperseded = true; }
+          });
+        }
+      } else {
+        // Rule 2: All regular/summer — keep the best (lowest) grade.
+        const best = Math.min(...regularEntries.map(c => c.grade));
+        let keptOne = false;
+        regularEntries.forEach(c => {
+          if (c.grade === best && !keptOne) { keptOne = true; }
+          else {
+            c.isSuperseded = true;
+            console.log(`🎓 Retake supersedes: "${c.courseName}" (${c.creditHours} cr) grade ${c.grade} → kept ${best}`);
+          }
+        });
+      }
+    }
+
+    return courses;
+  }
+
   // Inject input fields for pending grades (current semester only)
   function injectPredictorInputs() {
     currentSemesterData.forEach((course) => {
@@ -811,12 +688,10 @@
       <div class="guc-dashboard-header">
         <h3>📊 GPA Calculator</h3>
         <div class="guc-dashboard-controls">
-          <button id="guc-sync-btn" class="guc-btn guc-btn-icon" title="Sync All Semesters" style="font-size:13px;width:auto;padding:0 8px;">🔁 Sync All</button>
           <button id="guc-dark-toggle" class="guc-btn guc-btn-icon" title="Toggle Dark Mode">🌙</button>
           <button id="guc-minimize" class="guc-btn guc-btn-icon" title="Minimize">➖</button>
         </div>
       </div>
-      <div id="guc-sync-progress" class="guc-sync-progress" style="display:none;"></div>
 
       <div class="guc-dashboard-content">
         <div class="guc-section" id="guc-section-overview">
@@ -1147,7 +1022,6 @@
     // Add event listeners
     document.getElementById('guc-dark-toggle').addEventListener('click', toggleDarkMode);
     document.getElementById('guc-minimize').addEventListener('click', toggleMinimize);
-    document.getElementById('guc-sync-btn').addEventListener('click', autoSyncAllSemesters);
     document.getElementById('guc-calculate-goal').addEventListener('click', (e) => { e.preventDefault(); calculateGoalWithSuggestions(); });
     document.getElementById('guc-target-gpa').addEventListener('keypress', (e) => {
       if (e.key === 'Enter') { e.preventDefault(); calculateGoalWithSuggestions(); }
@@ -1338,6 +1212,8 @@
     showCurrentGradeCombination();
   }
 
+  // FIX-6: use === for every grade step (consistent with A/B range).
+  // The GUC scale only has the 12 discrete values below; any other value returns 'F'.
   function numericToLetterGrade(grade) {
     if (grade === 0.7) return 'A+';
     if (grade === 1.0) return 'A';
@@ -1345,11 +1221,11 @@
     if (grade === 1.7) return 'B+';
     if (grade === 2.0) return 'B';
     if (grade === 2.3) return 'B-';
-    if (grade <= 2.7) return 'C+';
-    if (grade <= 3.0) return 'C';
-    if (grade <= 3.3) return 'C-';
-    if (grade <= 3.7) return 'D+';
-    if (grade <= 4.0) return 'D';
+    if (grade === 2.7) return 'C+';
+    if (grade === 3.0) return 'C';
+    if (grade === 3.3) return 'C-';
+    if (grade === 3.7) return 'D+';
+    if (grade === 4.0) return 'D';
     return 'F';
   }
 
@@ -1360,6 +1236,8 @@
     
     // Process German courses across all semesters
     allCourses = processGermanCourses(allCourses);
+    // Process makeup / retaken courses — only count the best grade
+    allCourses = processMakeupCourses(allCourses);
 
     // Initialize all counters
     let completedCredits = 0;
@@ -1481,10 +1359,13 @@
     const numSemesters = Object.keys(allSemestersData).length;
     if (semesterCountEl) semesterCountEl.textContent = numSemesters;
     if (completedCountEl) completedCountEl.textContent = completedCount;
-    if (pendingCountEl) pendingCountEl.textContent = pendingCount;
+    // FIX-4: pending count includes user-added courses (those not yet in the transcript)
+    const userPendingNoGrade = userPendingCourses.filter(c => !c.predictedGrade).length;
+    if (pendingCountEl) pendingCountEl.textContent = pendingCount + userPendingNoGrade;
     if (totalCreditsEl) {
-      const pendingCreditsTotal = allCourses.filter(c => c.isPending).reduce((sum, c) => sum + c.creditHours, 0);
-      totalCreditsEl.textContent = completedCredits + pendingCreditsTotal;
+      const transcriptPendingCredits = allCourses.filter(c => c.isPending && !c.isSuperseded).reduce((sum, c) => sum + c.creditHours, 0);
+      const userPendingCredits = userPendingCourses.reduce((sum, c) => sum + Number(c.creditHours), 0);
+      totalCreditsEl.textContent = completedCredits + transcriptPendingCredits + userPendingCredits;
     }
 
     // Update stored semesters list
@@ -1503,30 +1384,74 @@
     if (whatifBody && whatifBody.style.display !== 'none') renderWhatIfSection();
   }
 
-  // Update the semesters list in dashboard
+  // Update the semesters list — grouped by academic year, collapsible.
+  // Period IDs have the form  "22_2024-2025__Winter_2024".
+  // We strip the "__..." suffix to get the year group key.
   function updateSemestersList() {
     const listEl = document.getElementById('guc-semesters-list');
     if (!listEl) return;
 
     const semesters = Object.entries(allSemestersData);
-    
     if (semesters.length === 0) {
-      listEl.innerHTML = '<span class="guc-no-semesters">No semesters stored yet. Visit each semester page to collect data.</span>';
+      listEl.innerHTML = '<span class="guc-no-semesters">No semesters stored yet. Visit each year\'s transcript page to collect data.</span>';
       return;
     }
 
-    listEl.innerHTML = semesters.map(([id, info]) => {
-      const courseCount = info.courses ? info.courses.length : 0;
-      const completedCount = info.courses ? info.courses.filter(c => !c.isPending && c.grade !== null).length : 0;
-      const isCurrent = id === currentSemesterId;
-      return `
-        <div class="guc-semester-item ${isCurrent ? 'guc-current-semester' : ''}">
-          <span class="guc-semester-name">${info.semesterName || id}</span>
-          <span class="guc-semester-info">${completedCount}/${courseCount} courses</span>
-          ${isCurrent ? '<span class="guc-current-badge">Current</span>' : ''}
-        </div>
+    // Group periods by academic year (the part before "__")
+    const yearGroups = {};  // yearKey → { label, periods[] }
+    semesters.forEach(([id, info]) => {
+      const parts   = id.split('__');
+      const yearKey = parts[0];  // e.g. "22_2024-2025"
+      // Human-readable year label: extract the "2024-2025" portion
+      const yearLabel = yearKey.replace(/^\d+_/, '') || yearKey;
+      if (!yearGroups[yearKey]) yearGroups[yearKey] = { label: yearLabel, periods: [] };
+      yearGroups[yearKey].periods.push({ id, info });
+    });
+
+    // Build HTML: one accordion per academic year
+    const isCurrentYear = (yearKey) => currentSemesterId && currentSemesterId.startsWith(yearKey);
+
+    let html = '';
+    Object.entries(yearGroups).forEach(([yearKey, { label, periods }]) => {
+      const current = isCurrentYear(yearKey);
+      const totalCourses    = periods.reduce((s, { info }) => s + (info.courses ? info.courses.length : 0), 0);
+      const completedCourses = periods.reduce((s, { info }) => s + (info.courses ? info.courses.filter(c => !c.isPending && c.grade !== null).length : 0), 0);
+
+      html += `
+        <div class="guc-year-group ${current ? 'guc-year-current' : ''}">
+          <div class="guc-year-header" onclick="this.parentElement.classList.toggle('guc-year-open')">
+            <span class="guc-year-label">📅 ${label}</span>
+            <span class="guc-year-meta">${completedCourses}/${totalCourses} courses</span>
+            <span class="guc-year-chevron">▼</span>
+            ${current ? '<span class="guc-current-badge">Current</span>' : ''}
+          </div>
+          <div class="guc-year-periods">
       `;
-    }).join('');
+
+      periods.forEach(({ id, info }) => {
+        const cCount   = info.courses ? info.courses.length : 0;
+        const doneCount = info.courses ? info.courses.filter(c => !c.isPending && c.grade !== null).length : 0;
+        const name     = info.semesterName || id.split('__')[1]?.replace(/_/g, ' ') || id;
+        // Tag makeup / summer periods
+        const isMakeupPeriod = /makeup/i.test(name);
+        const isSummerPeriod = /summer/i.test(name);
+        const tag = isMakeupPeriod ? '<span class="guc-period-tag makeup">Makeup</span>'
+                  : isSummerPeriod ? '<span class="guc-period-tag summer">Summer</span>'
+                  : '';
+        html += `
+          <div class="guc-period-item">
+            <span class="guc-period-name">${name}${tag}</span>
+            <span class="guc-period-info">${doneCount}/${cCount}</span>
+          </div>`;
+      });
+
+      html += `</div></div>`;
+    });
+
+    listEl.innerHTML = html;
+
+    // Auto-open the current year
+    listEl.querySelectorAll('.guc-year-current').forEach(el => el.classList.add('guc-year-open'));
   }
 
   // ============================================================
@@ -1543,13 +1468,27 @@
       return;
     }
 
+    // FIX-2: Apply deduplication (German levels + makeups) before plotting.
+    // Build a Set of valid "semesterId||courseName" keys from the globally
+    // processed list, then filter each semester's raw courses against it.
+    let allProcessedForChart = getAllStoredCourses();
+    allProcessedForChart = processGermanCourses(allProcessedForChart);
+    allProcessedForChart = processMakeupCourses(allProcessedForChart);
+    const validChartKeys = new Set(
+      allProcessedForChart
+        .filter(c => !c.isSuperseded && !c.isPending && c.grade !== null && c.creditHours > 0 && !c.isEnglish)
+        .map(c => `${c.semesterId}||${c.courseName.trim().toLowerCase()}`)
+    );
+
     // Compute cumulative GPA up to each semester (sorted by storage order / name)
     const dataPoints = [];
     let runCredits = 0, runWeightedSum = 0;
 
     semesters.forEach(([id, info]) => {
       const semName = info.semesterName || id.split('_').slice(1).join(' ') || id;
-      const courses = (info.courses || []).filter(c => !c.isPending && c.grade !== null && c.creditHours > 0 && !c.isSuperseded && !c.isEnglish);
+      const courses = (info.courses || []).filter(c =>
+        validChartKeys.has(`${id}||${(c.courseName || '').trim().toLowerCase()}`)
+      );
       courses.forEach(c => {
         runCredits += Number(c.creditHours);
         runWeightedSum += Number(c.grade) * Number(c.creditHours);
@@ -1672,6 +1611,7 @@
   function calculateWhatIfGPA() {
     let allCourses = getAllStoredCourses();
     allCourses = processGermanCourses(allCourses);
+    allCourses = processMakeupCourses(allCourses);  // FIX-3: exclude retaken originals
 
     let credits = 0, weightedSum = 0;
     allCourses.forEach(c => {
@@ -1694,6 +1634,7 @@
 
     let allCourses = getAllStoredCourses();
     allCourses = processGermanCourses(allCourses);
+    allCourses = processMakeupCourses(allCourses);  // FIX-3: exclude retaken originals
     const completed = allCourses.filter(c => !c.isPending && c.grade !== null && c.creditHours > 0 && !c.isSuperseded && !c.isEnglish);
 
     if (completed.length === 0) {
@@ -1788,6 +1729,7 @@
     // Get all courses from all stored semesters
     let allCourses = getAllStoredCourses();
     allCourses = processGermanCourses(allCourses);
+    allCourses = processMakeupCourses(allCourses);
 
     const trulyPendingCourses = userPendingCourses.filter(c => !c.predictedGrade);
     const predictedPendingCourses = userPendingCourses.filter(c => c.predictedGrade);
@@ -1844,11 +1786,13 @@
           <br>Required average: <strong>${requiredAvgGrade.toFixed(2)}</strong> (better than ${CONFIG.MIN_GRADE})
         </span>
       `;
-    } else if (requiredAvgGrade > CONFIG.PASS_THRESHOLD) {
+    } else if (requiredAvgGrade > CONFIG.MAX_GRADE) {
+      // FIX-5: use MAX_GRADE (5.0 = F) not PASS_THRESHOLD (4.0 = D).
+      // A required average of e.g. 4.5 IS theoretically achievable on GUC scale.
       resultDiv.innerHTML = `
         <span class="guc-error">
           ❌ Unfortunately, achieving a <strong>${targetGPA}</strong> GPA is not possible.
-          <br>Would require: <strong>${requiredAvgGrade.toFixed(2)}</strong> (above passing threshold)
+          <br>Would require: <strong>${requiredAvgGrade.toFixed(2)}</strong> (higher than the maximum grade 5.0)
         </span>
       `;
     } else {
@@ -1987,6 +1931,7 @@
         // Return all completed courses (with grades and credits)
         let allCourses = getAllStoredCourses();
         allCourses = processGermanCourses(allCourses);
+        allCourses = processMakeupCourses(allCourses);
         const completed = allCourses.filter(c => !c.isPending && c.grade !== null && c.creditHours > 0 && !c.isSuperseded && !c.isEnglish)
           .map(c => ({
             courseName: c.courseName,

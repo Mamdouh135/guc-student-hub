@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "GUC Student Hub",
-  "version": "2.2.0",
-  "description": "GUC Student Hub: track & predict your GPA, simulate grade scenarios, view your weekly schedule, export to calendar, and auto-fill staff evaluations. Built for GUC students.",
+  "version": "2.3.0",
+  "description": "GUC Student Hub: track & predict your GPA, view your weekly schedule, export to calendar, and auto-fill staff evaluations.",
   "author": "GUC Student Tools",
   "permissions": [
     "activeTab",

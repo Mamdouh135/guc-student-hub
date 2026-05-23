@@ -738,7 +738,7 @@
   display: flex;
   flex-direction: column;
   gap: 6px;
-  max-height: 150px;
+  max-height: 240px;
   overflow-y: auto;
 }
 
@@ -750,34 +750,114 @@
   padding: 8px;
 }
 
-.guc-semester-item {
+/* Year-group accordion */
+.guc-year-group {
+  border: 1px solid var(--guc-border);
+  border-radius: 10px;
+  overflow: hidden;
+  background: var(--guc-bg);
+}
+
+.guc-year-group.guc-year-current {
+  border-color: var(--guc-gold);
+}
+
+.guc-year-header {
   display: flex;
   align-items: center;
   gap: 8px;
   padding: 8px 10px;
-  background: var(--guc-bg);
-  border-radius: 8px;
-  border: 1px solid var(--guc-border);
-  font-size: 12px;
-}
-
-.guc-semester-item.guc-current-semester {
-  border-color: var(--guc-gold);
-  background: rgba(212, 168, 67, 0.1);
-}
-
-.guc-semester-name {
-  flex: 1;
-  font-weight: 500;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
   color: var(--guc-text);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  background: rgba(0, 74, 153, 0.05);
+  user-select: none;
+  transition: background 0.15s;
 }
 
-.guc-semester-info {
+.guc-year-current .guc-year-header {
+  background: rgba(212, 168, 67, 0.12);
+}
+
+.guc-year-header:hover {
+  background: rgba(0, 74, 153, 0.1);
+}
+
+.guc-year-label { flex: 1; }
+
+.guc-year-meta {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--guc-text-muted);
+}
+
+.guc-year-chevron {
+  font-size: 10px;
+  color: var(--guc-text-muted);
+  transition: transform 0.2s;
+}
+
+.guc-year-open .guc-year-chevron {
+  transform: rotate(180deg);
+}
+
+/* Hidden by default; visible when .guc-year-open */
+.guc-year-periods {
+  display: none;
+  flex-direction: column;
+  border-top: 1px solid var(--guc-border);
+}
+
+.guc-year-open .guc-year-periods {
+  display: flex;
+}
+
+/* Individual period row inside an open year */
+.guc-period-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 14px;
+  font-size: 12px;
+  border-bottom: 1px solid var(--guc-border);
+}
+
+.guc-period-item:last-child {
+  border-bottom: none;
+}
+
+.guc-period-name {
+  flex: 1;
+  color: var(--guc-text);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.guc-period-info {
   font-size: 11px;
   color: var(--guc-text-muted);
+}
+
+/* Makeup / Summer tags */
+.guc-period-tag {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: 4px;
+  letter-spacing: 0.4px;
+}
+
+.guc-period-tag.makeup {
+  background: rgba(220, 53, 69, 0.12);
+  color: #c0392b;
+}
+
+.guc-period-tag.summer {
+  background: rgba(255, 152, 0, 0.15);
+  color: #e65100;
 }
 
 .guc-current-badge {
@@ -789,6 +869,22 @@
   padding: 2px 6px;
   border-radius: 4px;
 }
+
+/* Dark mode semester section */
+.guc-dark-mode .guc-year-group {
+  background: rgba(255,255,255,0.03);
+}
+.guc-dark-mode .guc-year-header {
+  background: rgba(107, 157, 232, 0.07);
+}
+.guc-dark-mode .guc-year-current .guc-year-header {
+  background: rgba(240, 192, 96, 0.1);
+}
+.guc-dark-mode .guc-period-item {
+  border-bottom-color: rgba(100, 120, 200, 0.15);
+}
+.guc-dark-mode .guc-period-tag.makeup { background: rgba(255,100,100,0.15); color: #ff8080; }
+.guc-dark-mode .guc-period-tag.summer { background: rgba(255,180,60,0.15);  color: #ffb74d; }
 
 .guc-btn-small {
   background: transparent;
