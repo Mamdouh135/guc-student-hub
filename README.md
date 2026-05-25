@@ -1,34 +1,36 @@
-# GUC Transcript GPA Calculator
+# GUC Student Hub
 
-A Chrome Extension (Manifest V3) for the German University in Cairo (GUC) Student Portal transcript page.
+A Chrome Extension (Manifest V3) for the German University in Cairo (GUC) Student Portal.
 
 ## Features
 
 ### 📊 Real-time GPA Calculation
-
 - Automatically calculates your current GPA from completed courses
 - Uses the European grading scale (0.7 = best, 5.0 = fail)
 - Weighted calculation: (Grade × Credit Hours) / Total Credit Hours
 
 ### 🎯 Grade Predictor
-
 - Detects pending/empty grades in your transcript
 - Inject predicted grades into pending courses
 - Instantly see how predicted grades affect your overall GPA
 
 ### 🏆 Goal Finder
-
 - Set a target GPA (e.g., 1.7)
 - Calculate the average grade needed in pending courses to reach your goal
 - Get feedback on whether the goal is achievable
 
-### 🌙 Dark Mode
+### 📅 Weekly Schedule & Calendar Export
+- View your weekly schedule directly on the portal
+- Export your schedule to calendar applications
 
+### 📝 Auto-fill Staff Evaluations
+- Automatically fill staff evaluations to save time
+
+### 🌙 Dark Mode
 - Toggle between light and dark themes
 - GUC-inspired color scheme (Dark Blue & Gold)
 
 ### 📱 Floating Dashboard
-
 - Draggable, minimizable interface
 - Non-intrusive design that doesn't break the portal layout
 - Statistics overview (completed courses, pending courses, total credits)
@@ -36,13 +38,11 @@ A Chrome Extension (Manifest V3) for the German University in Cairo (GUC) Studen
 ## Installation
 
 ### Step 1: Generate Icons
-
 1. Open `icons/generate-icons.html` in Chrome
 2. Click "Download All Icons"
 3. Save the three PNG files (`icon16.png`, `icon48.png`, `icon128.png`) to the `icons` folder
 
 ### Step 2: Load the Extension
-
 1. Open Chrome and navigate to `chrome://extensions/`
 2. Enable **Developer mode** (toggle in the top-right corner)
 3. Click **Load unpacked**
@@ -50,12 +50,12 @@ A Chrome Extension (Manifest V3) for the German University in Cairo (GUC) Studen
 5. The extension should now appear in your extensions list
 
 ### Step 3: Use the Extension
-
-1. Navigate to your GUC transcript page:
-   `https://apps.guc.edu.eg/student_ext/Grade/Transcript_001.aspx`
-2. The floating dashboard will appear at the bottom-right
-3. Enter predicted grades in the input fields for pending courses
-4. Watch your predicted GPA update in real-time!
+1. Navigate to the supported GUC portal pages:
+   - Transcript: `https://apps.guc.edu.eg/student_ext/Grade/Transcript_001.aspx`
+   - Evaluations: `https://apps.guc.edu.eg/student_ext/Evaluation/EvaluateStaff.aspx`
+   - Schedule: `https://apps.guc.edu.eg/student_ext/Scheduling/GroupSchedule.aspx`
+2. The floating dashboard will appear at the bottom-right on supported pages.
+3. Enjoy the features!
 
 ## File Structure
 
@@ -66,6 +66,10 @@ guc/
 ├── style.css          # GUC-themed styles
 ├── popup.html         # Settings popup UI
 ├── popup.js           # Popup functionality
+├── schedule.js        # Schedule feature functionality
+├── schedule.css       # Schedule styling
+├── evaluation.js      # Evaluation auto-fill logic
+├── evaluation.css     # Evaluation styling
 ├── icons/
 │   ├── generate-icons.html  # Icon generator tool
 │   ├── icon16.png     # 16x16 icon (generate this)
@@ -86,33 +90,24 @@ guc/
 
 ## Troubleshooting
 
-### Extension not appearing on transcript page
-
-- Make sure you're on the correct URL: `https://apps.guc.edu.eg/student_ext/Grade/Transcript_001.aspx`
+### Extension not appearing
+- Make sure you're on the correct URL (Transcript, Evaluation, or Schedule)
 - Check that the extension is enabled in `chrome://extensions/`
 - Try refreshing the page
 
 ### Icons not showing
-
 - Make sure you've generated and saved the PNG icons to the `icons` folder
 - Reload the extension in `chrome://extensions/`
 
 ### Dashboard not appearing
-
 - Open the extension popup and ensure "Extension Enabled" is turned on
 - Check the browser console for any errors (F12 → Console)
-
-### Table not being detected
-
-- The extension looks for a table with ID `gvTranscript`
-- If GUC updates their portal, the table ID might change
 
 ## Privacy
 
 This extension:
-
-- ✅ Runs only on the GUC transcript page
-- ✅ Stores predicted grades locally in Chrome storage
+- ✅ Runs only on the GUC portal pages
+- ✅ Stores settings and predicted grades locally in Chrome storage
 - ✅ Does NOT send any data to external servers
 - ✅ Does NOT modify your actual grades (predictions are visual only)
 
